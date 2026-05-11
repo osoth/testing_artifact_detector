@@ -12,7 +12,11 @@ def get_language_statistics(project_path: str) -> dict:
     try:
         # Run cloc on the project path with JSON output
         result = subprocess.run(
-            ['cloc', '--json', project_path],
+            ['cloc',
+                  '--force-lang=C++,hpp', '--force-lang=C++,hxx',
+                  '--exclude-lang=Text,Markdown,JSON,CSV,TeX,reStructuredText,TOML,YAML,\
+make,awk,INI,PO File,CMake,CSS,HTML,XML,Dockerfile',
+                  '--json', project_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True
@@ -141,13 +145,14 @@ def get_language_info(sorted_languages: List[Tuple[str, int]]) -> Tuple[str, Dic
     return dominant_language, language_presence
 
 
-def analyse_languages_json(languages_json) -> Tuple[str, Dict[str, bool]]:
+def analyse_languages_json(languages_json) -> tuple[str, dict[str, bool], list[tuple[str, int]]]:
     """
     Analyses the given JSON language statistics and returns the
     dominant language and information about language presence.
 
     :param languages_json: The JSON structure containing the raw information.
-    :return: Dominant language and a dictionary indicating the presence of specific languages.
+    :return: Dominant language, a dictionary indicating the presence of specific languages
+             and the languages sorted by occurrence.
     """
     filtered_languages_json = filter_language_statistics(languages_json)
     cleaned_languages = cleanup_languages(filtered_languages_json)
@@ -155,16 +160,17 @@ def analyse_languages_json(languages_json) -> Tuple[str, Dict[str, bool]]:
 
     sorted_languages = sort_languages(language_sums)
     dominant_language, language_presence = get_language_info(sorted_languages)
-    return dominant_language, language_presence
+    return dominant_language, language_presence, sorted_languages
 
 
-def analyse_languages(project_path) -> Tuple[str, Dict[str, bool]]:
+def analyse_languages(project_path) -> tuple[str, dict[str, bool], list[tuple[str, int]]]:
     """
     Analyses the given project_path and returns the dominant language and information
     about language presence.
 
     :param project_path: The project path to analyse using `cloc`.
-    :return: Dominant language and dictionary indicating the presence of specific languages.
+    :return: Dominant language, a dictionary indicating the presence of specific languages
+             and the languages sorted by occurrence.
     """
     language_statistics = get_language_statistics(project_path)
 

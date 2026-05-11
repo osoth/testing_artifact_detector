@@ -55,7 +55,7 @@ def test_analyse_languages_json(testdata_directory) -> None:
     with open(json_file, 'r') as file:
         data = json.load(file)
 
-        dominant_language, language_dict = analyse_languages_json(data)
+        dominant_language, language_dict, lang_occurrence = analyse_languages_json(data)
 
         assert dominant_language == "C"
         assert language_dict["has_python"] == False

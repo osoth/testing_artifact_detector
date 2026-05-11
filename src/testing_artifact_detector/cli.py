@@ -27,6 +27,8 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
             results = []
 
+            projects_per_lang : dict[str, int] = {}
+
             cloned_repos = 0
             existing_repos = 0
             processed_repos = 0
@@ -50,7 +52,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                     if clone_result is not None:
                         if clone_result[0]:
                             cloned_repos += 1
-                            row["clone_date"] = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            row["clone_date"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
                             if assume_cloned:
                                 print(f"[WARN] Repo {joss_id} with URL {repo_url} was cloned"
                                       f" but should have existed!")
@@ -62,13 +64,21 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
                     if not clone_only:
                         clone_path = clone_result[1]
-                        dom, langs = analyse_languages(clone_path)
+                        dom, langs, langs_sorted = analyse_languages(clone_path)
                         row["dominant_lang"] = dom
                         row["has_python"] = langs["has_python"]
                         row["has_r"] = langs["has_r"]
                         row["has_cpp"] = langs["has_cpp"]
                         row["has_c"] = langs["has_c"]
                         row["has_julia"] = langs["has_julia"]
+                        row["lang_info"] = langs_sorted
+
+                        for lang_pair in list(langs_sorted):
+                            if lang_pair[0] not in projects_per_lang:
+                                projects_per_lang[lang_pair[0]] = 1
+                            else:
+                                projects_per_lang[lang_pair[0]] = projects_per_lang[lang_pair[0]] + 1
+
                 else: print(f"Skipping repo number {processed_repos+1} with"
                             f" {joss_id} and URL {repo_url}.")
 
@@ -87,7 +97,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
             if not clone_only:
                 out_fieldnames += ["dominant_lang", "has_python", "has_r",
-                                   "has_cpp", "has_c", "has_julia"]
+                                   "has_cpp", "has_c", "has_julia", "lang_info"]
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,
                                         extrasaction='ignore')
@@ -99,6 +109,8 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
         print(f"The file {csv_file_path} was not found.")
     except Exception as e:
         print(f"An error occurred: {e}")
+
+    print(f"Language prominence:\n{projects_per_lang}")
 
 
 def parse_args() -> argparse.Namespace:
