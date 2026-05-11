@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "testing-artifact-detector"
+version = "0.1.0"
+description = "Command-line tool that clones Git repositories and analyses them for test artifact presence."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+]
+
+[project.scripts]
+testing-artifact-detector = "testing_artifact_detector.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["error"]
+testpaths = ["test_suite"]
