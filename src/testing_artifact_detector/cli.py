@@ -1,3 +1,8 @@
+"""
+This module implements the CLI functionality of the tool.
+The main function `main` is automatically called.
+"""
+
 import argparse
 #import sys
 import csv
@@ -9,6 +14,9 @@ from datetime import datetime
 
 from .clone_repo import clone_repo
 from .repo_languages import analyse_languages
+
+from .detectors.check_r_test_artifacts import find_test_artifacts as find_r_test_artifacts
+from .detectors.check_python_test_artifacts import find_test_artifacts as find_py_test_artifacts
 
 def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                  clone_base_path : str, clone_only: bool,
@@ -79,6 +87,35 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             else:
                                 projects_per_lang[lang_pair[0]] = projects_per_lang[lang_pair[0]] + 1
 
+                    # Now we go into the deeper analysis steps:
+
+                    # We search for Python test configurations and files.
+                    if langs["has_python"]:
+                        py_testing_info = find_py_test_artifacts(clone_path)
+
+                        row["has_pyproject_toml"] = py_testing_info["has_pyproject_toml"]
+                        row["has_pytest_toml"] = py_testing_info["has_pytest_toml"]
+                        row["has_pytest_ini"] = py_testing_info["has_pytest_ini"]
+                        row["has_tox_ini"] = py_testing_info["has_tox_ini"]
+                        row["has_setup_cfg"] = py_testing_info["has_setup_cfg"]
+                        row["has_python_tests"] = py_testing_info["has_python_tests"]
+
+                    # We search for R testing artifacts.
+                    if langs["has_r"]:
+                        r_testing_info = find_r_test_artifacts(clone_path)
+
+                        row["has_r_config"] = r_testing_info["has_package_definition"]
+                        if r_testing_info["has_package_definition"]:
+                            row["uses_testthat"] = r_testing_info["uses_testthat"]
+                            row["has_testthat_config"] = r_testing_info["has_testthat_config"]
+                            row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
+                            row["uses_runit"] = r_testing_info["uses_runit"]
+                            row["has_runit_tests"] = r_testing_info["has_runit_tests"]
+                            row["uses_tinytest"] = r_testing_info["uses_tinytest"]
+                            row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
+                            row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
+
+
                 else: print(f"Skipping repo number {processed_repos+1} with"
                             f" {joss_id} and URL {repo_url}.")
 
@@ -98,6 +135,16 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
             if not clone_only:
                 out_fieldnames += ["dominant_lang", "has_python", "has_r",
                                    "has_cpp", "has_c", "has_julia", "lang_info"]
+
+                # Python fields
+                out_fieldnames += ["has_pyproject_toml", "has_pytest_toml", "has_pytest_ini",
+                                   "has_tox_ini", "has_setup_cfg",
+                                   "has_python_tests"]
+
+                out_fieldnames += ["has_r_config",
+                                   "uses_testthat", "has_testthat_config", "has_testthat_tests",
+                                   "uses_runit", "has_runit_tests",
+                                   "uses_tinytest", "has_tinytest_config", "has_tinytest_tests"]
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,
                                         extrasaction='ignore')

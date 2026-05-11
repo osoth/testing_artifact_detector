@@ -1,3 +1,7 @@
+"""
+This module contains functionality to clone a Git repository.
+The main function is obviously `clone_repo`.
+"""
 import os
 import time
 import subprocess

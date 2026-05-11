@@ -1,0 +1,17 @@
+Package: mypackage
+Type: Package
+Title: Example Package Using tinytest and testthat
+Version: 0.1.0
+Author: Your Name
+Maintainer: Your Name <your.email@example.com>
+Description: An example package demonstrating unit testing with tinytest and testthat.
+License: BSD-3-Clause
+Imports:
+    data.table,
+    shiny
+Suggests:
+    tinytest,
+    testthat (>= 3.0.0),
+    devtools
+Depends:
+    R (>= 4.1.0)

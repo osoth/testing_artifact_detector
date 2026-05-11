@@ -1,3 +1,11 @@
+"""
+This module contains functionality analyse a path for its languages
+using `cloc`. The result is then processed and relevant information is
+extracted and merged.
+
+The main function is `analyse_languages`.
+"""
+
 import subprocess
 import json
 from typing import Dict, List, Tuple

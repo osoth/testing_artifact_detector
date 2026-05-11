@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import os
 import json
 
-from testing_artifact_detector.repo_languages import (analyse_languages_json,
+from src.testing_artifact_detector.repo_languages import (analyse_languages_json,
                                                            filter_language_statistics, cleanup_languages)
 
 @pytest.fixture

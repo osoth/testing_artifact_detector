@@ -1,0 +1,17 @@
+Package: mypackage
+Type: Package
+Title: Example Package Using testthat
+Version: 0.1.0
+Author: Your Name
+Maintainer: Your Name <your.email@example.com>
+Description: An example package demonstrating unit testing with testthat.
+License: MIT
+Imports:
+    dplyr,
+    ggplot2
+Suggests:
+    testthat (>= 3.0.0),
+    knitr
+Config/testthat/edition: 3
+Depends:
+    R (>= 4.0.0)
