@@ -119,16 +119,17 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             r_testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
 
                             row["has_r_config"] = r_testing_info["has_package_definition"]
-                            if r_testing_info["has_package_definition"]:
-                                row["uses_testthat"] = r_testing_info["uses_testthat"]
-                                row["has_testthat_config"] = r_testing_info["has_testthat_config"]
-                                row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
-                                row["uses_runit"] = r_testing_info["uses_runit"]
-                                row["has_runit_tests"] = r_testing_info["has_runit_tests"]
-                                row["uses_tinytest"] = r_testing_info["uses_tinytest"]
-                                row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
-                                row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
-                                row["r_testing_types"] = testing_type_folders
+                            #if r_testing_info["has_package_definition"]:
+                            row["uses_testthat"] = r_testing_info["uses_testthat"]
+                            row["has_testthat_config"] = r_testing_info["has_testthat_config"]
+                            row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
+                            row["uses_runit"] = r_testing_info["uses_runit"]
+                            row["has_runit_tests"] = r_testing_info["has_runit_tests"]
+                            row["uses_tinytest"] = r_testing_info["uses_tinytest"]
+                            row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
+                            row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
+                            row["has_r_tests"] = r_testing_info["has_tests"]
+                            row["r_testing_types"] = testing_type_folders
 
                         # Handle C/C++:
                         if langs["has_c"] or langs["has_cpp"]:
@@ -139,7 +140,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             row["has_cmakelists"] = cpp_testing_info["has_cmakelists"]
                             row["uses_gtest"] = cpp_testing_info["uses_gtest"]
                             row["uses_catch2"] = cpp_testing_info["uses_catch2"]
-                            row["cpp_tests_found"] = cpp_testing_info["tests_found"]
+                            row["has_cpp_tests"] = cpp_testing_info["tests_found"]
                             row["gtests_found"] = cpp_testing_info["gtests_found"]
                             row["has_test_folder"] = cpp_testing_info["has_test_folder"]
                             row["cmake_languages"] = languages
@@ -181,12 +182,12 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                    "uses_testthat", "has_testthat_config", "has_testthat_tests",
                                    "uses_runit", "has_runit_tests",
                                    "uses_tinytest", "has_tinytest_config", "has_tinytest_tests",
-                                   "r_testing_types"]
+                                   "has_r_tests", "r_testing_types"]
 
                 # C++ fields
                 out_fieldnames += ["has_root_makefile", "has_root_cmakelists", "has_cmakelists",
                                    "cmake_languages", "uses_gtest", "uses_catch2",
-                                   "cpp_tests_found", "gtests_found", "has_test_folder", "cpp_testing_types"]
+                                   "has_cpp_tests", "gtests_found", "has_test_folder", "cpp_testing_types"]
 
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,

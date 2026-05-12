@@ -74,7 +74,19 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
 
     all_testing_type_folders = []
 
+    test_config['has_testthat_config'] = False
+    test_config['has_testthat_tests'] = False
+
+    test_config['has_runit_tests'] = False
+
+    test_config['has_tinytest_config'] = False
+    test_config['has_tinytest_tests'] = False
+
+    test_config['has_tests'] = False
+
     if test_config['has_package_definition']:
+        has_tests = False
+
         if test_config['uses_testthat']:
             # All files must be in `tests/testthat` and there should be a file `tests/testthat.R`
             # Check whether there is a non-empty testthat config
@@ -86,7 +98,9 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
             # Fetch test artifacts
             testthat_directory = os.path.join(root_path, "tests/testthat")
             testthat_test_count = count_non_empty_r_files(testthat_directory, "test-")
-            test_config['has_testthat_tests'] = testthat_test_count > 0
+            has_testthat_tests = testthat_test_count > 0
+            has_tests = has_tests | has_testthat_tests
+            test_config['has_testthat_tests'] = has_testthat_tests
             print(f'Found {testthat_test_count} testthat test files.')
             all_testing_type_folders += find_testing_type_folders(testthat_directory)
 
@@ -96,7 +110,9 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
             # with the prefix "runit" but even this is not for granted. We can only do a
             # Big bang search for files with the prefix. And even then, we may miss out something.
             runit_test_count = count_non_empty_r_files(root_path, "runit")
-            test_config['has_runit_tests'] = runit_test_count > 0
+            has_runit_tests = runit_test_count > 0
+            has_tests = has_tests | has_runit_tests
+            test_config['has_runit_tests'] = has_runit_tests
             print(f'Found {runit_test_count} RUnit test files.')
 
         if test_config['uses_tinytest']:
@@ -110,8 +126,12 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
             # Fetch test artifacts
             tinytest_directory = os.path.join(root_path, "inst/tinytest")
             tinytest_test_count = count_non_empty_r_files(tinytest_directory, "test")
-            test_config['has_tinytest_tests'] = tinytest_test_count > 0
+            has_tinytest_tests = tinytest_test_count > 0
+            has_tests = has_tests | has_tinytest_tests
+            test_config['has_tinytest_tests'] = has_tinytest_tests
             print(f'Found {tinytest_test_count} tinytest test files.')
             all_testing_type_folders += find_testing_type_folders(tinytest_directory)
+
+        test_config['has_tests'] = has_tests
 
     return test_config, list(set(all_testing_type_folders))
