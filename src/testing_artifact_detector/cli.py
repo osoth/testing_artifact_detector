@@ -17,6 +17,7 @@ from .repo_languages import analyse_languages
 
 from .detectors.check_r_test_artifacts import find_test_artifacts as find_r_test_artifacts
 from .detectors.check_python_test_artifacts import find_test_artifacts as find_py_test_artifacts
+from .detectors.check_cpp_test_artifacts import find_test_artifacts as find_cpp_test_artifacts
 
 from .detectors.check_test_types import has_nonempty_benchmark_folders
 
@@ -96,38 +97,53 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             else:
                                 projects_per_lang[lang_pair[0]] = projects_per_lang[lang_pair[0]] + 1
 
-                    # Now we go into the deeper analysis steps:
+                        # Now we go into the deeper analysis steps:
 
-                    # We search for Python test configurations and files.
-                    if langs["has_python"]:
-                        py_testing_info, testing_type_folders = find_py_test_artifacts(clone_path)
+                        row["has_benchmark_folder"] = has_nonempty_benchmark_folders(clone_path)
 
-                        row["has_pyproject_toml"] = py_testing_info["has_pyproject_toml"]
-                        row["has_pytest_toml"] = py_testing_info["has_pytest_toml"]
-                        row["has_pytest_ini"] = py_testing_info["has_pytest_ini"]
-                        row["has_tox_ini"] = py_testing_info["has_tox_ini"]
-                        row["has_setup_cfg"] = py_testing_info["has_setup_cfg"]
-                        row["has_python_tests"] = py_testing_info["has_python_tests"]
-                        row["has_requirements"] = os.path.exists(os.path.join(clone_path, 'requirements.txt'))
-                        row["py_testing_types"] = testing_type_folders
+                        # We search for Python test configurations and files.
+                        if langs["has_python"]:
+                            py_testing_info, testing_type_folders = find_py_test_artifacts(clone_path)
 
-                    # We search for R testing artifacts.
-                    if langs["has_r"]:
-                        r_testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
+                            row["has_pyproject_toml"] = py_testing_info["has_pyproject_toml"]
+                            row["has_pytest_toml"] = py_testing_info["has_pytest_toml"]
+                            row["has_pytest_ini"] = py_testing_info["has_pytest_ini"]
+                            row["has_tox_ini"] = py_testing_info["has_tox_ini"]
+                            row["has_setup_cfg"] = py_testing_info["has_setup_cfg"]
+                            row["has_python_tests"] = py_testing_info["has_python_tests"]
+                            row["has_requirements"] = os.path.exists(os.path.join(clone_path, 'requirements.txt'))
+                            row["py_testing_types"] = testing_type_folders
 
-                        row["has_r_config"] = r_testing_info["has_package_definition"]
-                        if r_testing_info["has_package_definition"]:
-                            row["uses_testthat"] = r_testing_info["uses_testthat"]
-                            row["has_testthat_config"] = r_testing_info["has_testthat_config"]
-                            row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
-                            row["uses_runit"] = r_testing_info["uses_runit"]
-                            row["has_runit_tests"] = r_testing_info["has_runit_tests"]
-                            row["uses_tinytest"] = r_testing_info["uses_tinytest"]
-                            row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
-                            row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
-                            row["r_testing_types"] = testing_type_folders
+                        # We search for R testing artifacts.
+                        if langs["has_r"]:
+                            r_testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
 
-                    row["has_benchmark_folder"] = has_nonempty_benchmark_folders(clone_path)
+                            row["has_r_config"] = r_testing_info["has_package_definition"]
+                            if r_testing_info["has_package_definition"]:
+                                row["uses_testthat"] = r_testing_info["uses_testthat"]
+                                row["has_testthat_config"] = r_testing_info["has_testthat_config"]
+                                row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
+                                row["uses_runit"] = r_testing_info["uses_runit"]
+                                row["has_runit_tests"] = r_testing_info["has_runit_tests"]
+                                row["uses_tinytest"] = r_testing_info["uses_tinytest"]
+                                row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
+                                row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
+                                row["r_testing_types"] = testing_type_folders
+
+                        # Handle C/C++:
+                        if langs["has_c"] or langs["has_cpp"]:
+                            cpp_testing_info, languages, testing_type_folders = find_cpp_test_artifacts(clone_path)
+
+                            row["has_root_makefile"] = cpp_testing_info["has_root_makefile"]
+                            row["has_root_cmakelists"] = cpp_testing_info["has_root_cmakelists"]
+                            row["has_cmakelists"] = cpp_testing_info["has_cmakelists"]
+                            row["uses_gtest"] = cpp_testing_info["uses_gtest"]
+                            row["uses_catch2"] = cpp_testing_info["uses_catch2"]
+                            row["cpp_tests_found"] = cpp_testing_info["tests_found"]
+                            row["gtests_found"] = cpp_testing_info["gtests_found"]
+                            row["has_test_folder"] = cpp_testing_info["has_test_folder"]
+                            row["cmake_languages"] = languages
+                            row["cpp_testing_types"] = testing_type_folders
 
                 else: print(f"Skipping repo number {processed_repos+1} with"
                             f" {joss_id} and URL {repo_url}.")
@@ -138,7 +154,12 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                 print(f"Finished analysis of repo number {processed_repos} with"
                       f" {joss_id} and URL {repo_url}.")
 
+    except FileNotFoundError as e:
+        print(f"The file {csv_file_path} was not found: {e}.")
+    except Exception as e:
+        print(f"An error occurred: {e.with_traceback()}")
 
+    try:
         with open(csv_outfile_path, mode='w', newline='', encoding='utf-8') as csvfile:
             # Define the output fieldnames.
             out_fieldnames = (reader.fieldnames or [])
@@ -155,11 +176,18 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                    "has_tox_ini", "has_setup_cfg", "has_requirements",
                                    "has_python_tests", "py_testing_types"]
 
+                # R fields
                 out_fieldnames += ["has_r_config",
                                    "uses_testthat", "has_testthat_config", "has_testthat_tests",
                                    "uses_runit", "has_runit_tests",
                                    "uses_tinytest", "has_tinytest_config", "has_tinytest_tests",
                                    "r_testing_types"]
+
+                # C++ fields
+                out_fieldnames += ["has_root_makefile", "has_root_cmakelists", "has_cmakelists",
+                                   "cmake_languages", "uses_gtest", "uses_catch2",
+                                   "cpp_tests_found", "gtests_found", "has_test_folder", "cpp_testing_types"]
+
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,
                                         extrasaction='ignore')
@@ -167,8 +195,8 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
             csv_writer.writerows(results)
 
 
-    except FileNotFoundError:
-        print(f"The file {csv_file_path} was not found.")
+    except FileNotFoundError as e:
+        print(f"The file {csv_outfile_path} was not found: {e}.")
     except Exception as e:
         print(f"An error occurred: {e}")
 

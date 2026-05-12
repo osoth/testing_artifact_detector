@@ -94,7 +94,7 @@ def parse_cmake_files(file_paths : List[str]) -> Optional[str]:
 
     # Prepare JSON object
     result = {
-        "has_cmakelists"   : bool(file_paths),
+        "has_cmakelists"   : bool(list(file_paths)),
         "languages"        : [],
         "dependencies"     : [],
         "opt_dependencies" : [],
@@ -195,6 +195,3 @@ def collect_testing_configuration(root_path: str):
     cmake_info = parse_cmake_files(cmake_lists_paths)
 
     return cmake_info
-
-
-

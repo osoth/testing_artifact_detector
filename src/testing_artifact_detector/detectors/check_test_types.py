@@ -1,3 +1,8 @@
+"""
+This module provides functionality to identify testing type folders and ensures
+that only non-empty folders are accepted as potential testing folders.
+"""
+
 import os
 from typing import List
 
