@@ -5,10 +5,12 @@ and leverages the 'parse_python_test_configs.py' for fetching the configuration.
 
 import os
 import fnmatch
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from testing_artifact_detector.config_parsers.python_test_config_parser \
     import extract_testing_configuration
+
+from .check_test_types import find_testing_type_folders_in_paths
 
 
 def is_non_empty_python_file(file_path: str) -> bool:
@@ -92,7 +94,7 @@ def search_artifacts_in_paths(root_path: str, test_config: Dict[str, List[str]])
     return found_files
 
 
-def find_test_artifacts(root_path: str) -> Dict[str, bool]:
+def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
     """
     Validates the test paths by checking for non-empty Python files within each test path.
 
@@ -100,7 +102,7 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
     path to verify if it contains non-empty Python files.
 
     :param root_path: The directory path to search for test configuration files.
-    :return: A list of valid test paths containing non-empty Python files.
+    :return: A tuple containing a dict with found configs and test info and a list of testing types.
     """
     test_config = extract_testing_configuration(root_path)
 
@@ -129,6 +131,8 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
 
     #print(f"Found files: {found_files}")
 
+    testing_type_folders = find_testing_type_folders_in_paths(root_path, test_config["testpaths"])
+
     found_configs = test_config["found_configs"]
 
     #print(f"Found configs: {found_configs}")
@@ -142,5 +146,4 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
         'has_python_tests': len(found_files) > 0,
     }
 
-    return test_artifacts
-
+    return test_artifacts, testing_type_folders

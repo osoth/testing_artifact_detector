@@ -6,7 +6,7 @@ The main function `main` is automatically called.
 import argparse
 #import sys
 import csv
-#import os
+import os
 #import time
 import re
 from datetime import datetime
@@ -17,6 +17,8 @@ from .repo_languages import analyse_languages
 
 from .detectors.check_r_test_artifacts import find_test_artifacts as find_r_test_artifacts
 from .detectors.check_python_test_artifacts import find_test_artifacts as find_py_test_artifacts
+
+from .detectors.check_test_types import has_nonempty_benchmark_folders
 
 def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                  clone_base_path : str, clone_only: bool,
@@ -36,6 +38,8 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
             results = []
 
             projects_per_lang : dict[str, int] = {}
+
+            projects_with_dominant_lang : dict[str, int] = {}
 
             cloned_repos = 0
             existing_repos = 0
@@ -81,6 +85,11 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                         row["has_julia"] = langs["has_julia"]
                         row["lang_info"] = langs_sorted
 
+                        if dom not in projects_with_dominant_lang:
+                            projects_with_dominant_lang[dom] = 1
+                        else:
+                            projects_with_dominant_lang[dom] = projects_with_dominant_lang[dom] + 1
+
                         for lang_pair in list(langs_sorted):
                             if lang_pair[0] not in projects_per_lang:
                                 projects_per_lang[lang_pair[0]] = 1
@@ -91,7 +100,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
                     # We search for Python test configurations and files.
                     if langs["has_python"]:
-                        py_testing_info = find_py_test_artifacts(clone_path)
+                        py_testing_info, testing_type_folders = find_py_test_artifacts(clone_path)
 
                         row["has_pyproject_toml"] = py_testing_info["has_pyproject_toml"]
                         row["has_pytest_toml"] = py_testing_info["has_pytest_toml"]
@@ -99,10 +108,12 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                         row["has_tox_ini"] = py_testing_info["has_tox_ini"]
                         row["has_setup_cfg"] = py_testing_info["has_setup_cfg"]
                         row["has_python_tests"] = py_testing_info["has_python_tests"]
+                        row["has_requirements"] = os.path.exists(os.path.join(clone_path, 'requirements.txt'))
+                        row["py_testing_types"] = testing_type_folders
 
                     # We search for R testing artifacts.
                     if langs["has_r"]:
-                        r_testing_info = find_r_test_artifacts(clone_path)
+                        r_testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
 
                         row["has_r_config"] = r_testing_info["has_package_definition"]
                         if r_testing_info["has_package_definition"]:
@@ -114,7 +125,9 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             row["uses_tinytest"] = r_testing_info["uses_tinytest"]
                             row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
                             row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
+                            row["r_testing_types"] = testing_type_folders
 
+                    row["has_benchmark_folder"] = has_nonempty_benchmark_folders(clone_path)
 
                 else: print(f"Skipping repo number {processed_repos+1} with"
                             f" {joss_id} and URL {repo_url}.")
@@ -134,17 +147,19 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
             if not clone_only:
                 out_fieldnames += ["dominant_lang", "has_python", "has_r",
-                                   "has_cpp", "has_c", "has_julia", "lang_info"]
+                                   "has_cpp", "has_c", "has_julia", "lang_info",
+                                   "has_benchmark_folder"]
 
                 # Python fields
                 out_fieldnames += ["has_pyproject_toml", "has_pytest_toml", "has_pytest_ini",
-                                   "has_tox_ini", "has_setup_cfg",
-                                   "has_python_tests"]
+                                   "has_tox_ini", "has_setup_cfg", "has_requirements",
+                                   "has_python_tests", "py_testing_types"]
 
                 out_fieldnames += ["has_r_config",
                                    "uses_testthat", "has_testthat_config", "has_testthat_tests",
                                    "uses_runit", "has_runit_tests",
-                                   "uses_tinytest", "has_tinytest_config", "has_tinytest_tests"]
+                                   "uses_tinytest", "has_tinytest_config", "has_tinytest_tests",
+                                   "r_testing_types"]
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,
                                         extrasaction='ignore')
@@ -158,6 +173,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
         print(f"An error occurred: {e}")
 
     print(f"Language prominence:\n{projects_per_lang}")
+    print(f"Language dominance:\n{projects_with_dominant_lang}")
 
 
 def parse_args() -> argparse.Namespace:

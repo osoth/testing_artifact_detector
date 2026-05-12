@@ -5,11 +5,12 @@ and leverages the 'parse_r_test_configs.py' for fetching the configuration.
 
 import os
 import fnmatch
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from testing_artifact_detector.config_parsers.r_test_config_parser \
     import parse_dcf_file
 
+from .check_test_types import find_testing_type_folders
 
 def is_non_empty_r_file(file_path: str) -> bool:
     """
@@ -55,7 +56,7 @@ def count_non_empty_r_files(directory: str, file_prefix: str = "") -> int:
     return len(find_non_empty_r_files(directory, file_prefix))
 
 
-def find_test_artifacts(root_path: str) -> Dict[str, bool]:
+def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
     """
     Validates the test paths by checking for non-empty R files within each test path.
 
@@ -63,12 +64,15 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
     path to verify if it contains non-empty R files.
 
     :param root_path: The directory path to search for test configuration files.
-    :return: A dictionary with the information about whether specific frameworks and artifacts were found.
+    :return: A Tuple, consisting of a dictionary with the information about whether specific
+            frameworks and artifacts were found, and a list of found testing types.
     """
 
     file_path = os.path.join(root_path, "DESCRIPTION")
 
     test_config = parse_dcf_file(file_path)
+
+    all_testing_type_folders = []
 
     if test_config['has_package_definition']:
         if test_config['uses_testthat']:
@@ -84,6 +88,7 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
             testthat_test_count = count_non_empty_r_files(testthat_directory, "test-")
             test_config['has_testthat_tests'] = testthat_test_count > 0
             print(f'Found {testthat_test_count} testthat test files.')
+            all_testing_type_folders += find_testing_type_folders(testthat_directory)
 
         if test_config['uses_runit']:
             # According to https://cran.r-project.org/web/packages/RUnit/vignettes/RUnit.pdf
@@ -107,5 +112,6 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
             tinytest_test_count = count_non_empty_r_files(tinytest_directory, "test")
             test_config['has_tinytest_tests'] = tinytest_test_count > 0
             print(f'Found {tinytest_test_count} tinytest test files.')
+            all_testing_type_folders += find_testing_type_folders(tinytest_directory)
 
-    return test_config
+    return test_config, list(set(all_testing_type_folders))
