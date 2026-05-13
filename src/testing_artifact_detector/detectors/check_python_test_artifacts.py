@@ -36,11 +36,12 @@ def find_non_empty_python_files(directory: str) -> List[str]:
 
     nonempty_files = []
 
-    for root, _, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            if is_non_empty_python_file(file_path):
-                nonempty_files.append(file_path)
+    if os.path.exists(directory):
+        for root, _, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if is_non_empty_python_file(file_path):
+                    nonempty_files.append(file_path)
 
     return nonempty_files
 

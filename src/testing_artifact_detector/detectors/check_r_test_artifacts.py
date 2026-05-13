@@ -36,11 +36,12 @@ def find_non_empty_r_files(directory: str, file_prefix: str = "") -> List[str]:
 
     nonempty_files = []
 
-    for root, _, files in os.walk(directory):
-        for filename in files:
-            file_path = os.path.join(root, filename)
-            if fnmatch.fnmatch(filename, f'{file_prefix}*') and is_non_empty_r_file(file_path):
-                nonempty_files.append(file_path)
+    if os.path.exists(directory):
+        for root, _, files in os.walk(directory):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                if fnmatch.fnmatch(filename, f'{file_prefix}*') and is_non_empty_r_file(file_path):
+                    nonempty_files.append(file_path)
 
     return nonempty_files
 
