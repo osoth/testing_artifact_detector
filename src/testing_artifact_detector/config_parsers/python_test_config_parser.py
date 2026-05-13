@@ -212,7 +212,7 @@ def extract_testing_configuration(directory: str) -> Dict[str, List[str]]:
     """
 
     default_config = {
-        "testpaths" : ["tests"],
+        "testpaths" : ["test", "tests"],
         "python_files" : [],
         "found_configs" : []
     }
