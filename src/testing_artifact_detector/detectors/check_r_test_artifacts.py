@@ -19,7 +19,7 @@ def is_non_empty_r_file(file_path: str) -> bool:
     :param file_path: The file path to check.
     :return: True if file_path is a non-empty R file, False otherwise.
     """
-    if file_path.endswith('.R') or file_path.endswith('.r'):
+    if os.path.exists(file_path) and file_path.endswith('.R') or file_path.endswith('.r'):
         if os.path.getsize(file_path) > 0:
             return True
     return False
