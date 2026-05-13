@@ -75,7 +75,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                         print(f"Failed to clone repo number {processed_repos} with"
                               f" {joss_id} and URL {repo_url}.")
 
-                    if not clone_only:
+                    if not clone_only and clone_result is not None:
                         clone_path = clone_result[1]
                         dom, langs, langs_sorted = analyse_languages(clone_path)
                         row["dominant_lang"] = dom

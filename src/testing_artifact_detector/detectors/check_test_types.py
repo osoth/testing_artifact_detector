@@ -32,6 +32,10 @@ def is_non_empty_folder(base_path: str) -> bool:
     :param base_path: The path to the directory to check.
     :return: True if the directory has at least one non-empty file or subdirectory, False otherwise.
     """
+
+    if not os.path.exists(base_path):
+            return False
+
     for entry in os.scandir(base_path):
         if entry.is_file():
             if os.path.getsize(entry.path) > 0:
@@ -49,6 +53,9 @@ def has_nonempty_benchmark_folders(base_path : str) -> bool:
     :param base_path: The path to search the folders in.
     :return: True if prospective benchmarking folders were found and False, else.
     """
+    if not os.path.exists(base_path):
+        return False
+
     folders = [f.path for f in os.scandir(base_path) if f.is_dir()]
     for folder in list(folders):
         current_folder = folder.split('/')[-1].lower()
@@ -68,6 +75,9 @@ def find_testing_type_folders(base_path : str) -> List[str]:
     """
 
     testing_types = []
+
+    if not os.path.exists(base_path):
+        return testing_types
 
     folders = [f.path for f in os.scandir(base_path) if f.is_dir()]
     for folder in list(folders):
@@ -92,7 +102,7 @@ def find_testing_type_folders_in_paths(root_path: str, base_paths : List[str]) -
 
     for test_folder in base_paths:
         test_folder_path = os.path.join(root_path, test_folder)
-        if os.path.exists(test_folder_path):
+        if os.path.exists(test_folder_path) and os.path.isdir(test_folder_path):
             testing_type_folders = find_testing_type_folders(test_folder_path)
             all_testing_type_folders += testing_type_folders
 
