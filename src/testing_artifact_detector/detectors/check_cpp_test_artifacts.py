@@ -61,11 +61,16 @@ def find_test_artifacts(root_path: str):
     # Search test folder and testing types in the default test paths.
     has_test_folder = False
     default_test_folders = []
-    for folder in ["test", "tests", "test_suite"]:
-        folder_path = os.path.join(root_path, folder)
-        if os.path.exists(folder_path) and is_non_empty_folder(folder_path):
-            has_test_folder = True
-            default_test_folders.extend(folder)
+
+    folders = [f.path for f in os.scandir(root_path) if f.is_dir()]
+    for folder in list(folders):
+        subfolder_basename = folder.split('/')[-1]
+        if "test" in subfolder_basename.lower():
+            #print(f"!!!CPP potential test folder: {subfolder_basename}")
+            test_folder = os.path.join(root_path, subfolder_basename)
+            if os.path.exists(test_folder) and is_non_empty_folder(test_folder):
+                has_test_folder = True
+                default_test_folders.append(subfolder_basename)
 
 
     testing_type_folders = find_testing_type_folders_in_paths(root_path, default_test_folders)
