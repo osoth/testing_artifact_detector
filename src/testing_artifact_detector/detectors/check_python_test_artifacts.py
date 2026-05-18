@@ -12,6 +12,8 @@ from testing_artifact_detector.config_parsers.python_test_config_parser \
 
 from .check_test_types import find_testing_type_folders_in_paths
 
+from .util import is_non_empty_file
+
 
 def is_non_empty_python_file(file_path: str) -> bool:
     """
@@ -20,10 +22,7 @@ def is_non_empty_python_file(file_path: str) -> bool:
     :param file_path: The file path to check.
     :return: True if file_path is a non-empty Python file, False otherwise.
     """
-    if file_path.endswith('.py'):
-        if os.path.getsize(file_path) > 0:
-            return True
-    return False
+    return is_non_empty_file(file_path) and file_path.endswith('.py')
 
 
 def find_non_empty_python_files(directory: str) -> List[str]:
@@ -65,6 +64,28 @@ def count_non_empty_python_files(directory: str) -> int:
     return nonempty_file_count
 
 
+def find_files_with_pattern(root_path: str, files: List[str], filepattern : str) -> List[str]:
+    """
+    Filters all files which match the `filepattern` and are located
+    in `root_path`.
+
+    :param root_path: The root path to match the files in.
+    :param files: the files in the root.
+    :param filepattern: The pattern to match against.
+    :return The list of non-empty python files matching `filepattern`.
+    """
+    found_files = []
+
+    for file in files:
+        if fnmatch.fnmatch(file, filepattern):
+            found_file = os.path.join(root_path, file)
+            #print(f"Looking onto file {found_file}")
+            if is_non_empty_python_file(found_file):
+                found_files.append(found_file)
+
+    return found_files
+
+
 def search_artifacts_in_paths(root_path: str, test_config: Dict[str, List[str]]) -> List[str]:
     """
     Iterates over all directories in 'testpaths' and searches for files
@@ -80,18 +101,14 @@ def search_artifacts_in_paths(root_path: str, test_config: Dict[str, List[str]])
     """
     found_files = []
 
-    for testpath in test_config["testpaths"]:
-        tests_root = os.path.join(root_path, testpath)
+    for path in test_config["testpaths"]:
+        tests_root = os.path.join(root_path, path)
         #print(f"Searching in test root {tests_root}")
         for root, _, files in os.walk(tests_root):
-            for filepattern in test_config["python_files"]:
-                #print(f"Searching for pattern {filepattern}")
-                for file in files:
-                    if fnmatch.fnmatch(file, filepattern):
-                        found_file = os.path.join(root, file)
-                        #print(f"Looking onto file {found_file}")
-                        if is_non_empty_python_file(found_file):
-                            found_files.append(found_file)
+            for pattern in test_config["python_files"]:
+                #print(f"Searching for pattern {pattern}")
+                found_files.extend(find_files_with_pattern(root, files, pattern))
+
     return found_files
 
 

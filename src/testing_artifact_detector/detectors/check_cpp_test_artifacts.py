@@ -43,7 +43,7 @@ def find_main_toolchain(base_path : str) -> Dict[str, bool]:
     return found_toolchain
 
 
-def find_test_artifacts(root_path: str):
+def find_test_artifacts(root_path: str) -> Dict[str, bool]:
     """
     This function collects the testing configuration to find test artifacts in those.
     Also, it checks whether there are non-empty test folders and whether those contain

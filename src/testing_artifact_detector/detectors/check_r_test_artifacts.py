@@ -12,6 +12,8 @@ from testing_artifact_detector.config_parsers.r_test_config_parser \
 
 from .check_test_types import find_testing_type_folders
 
+from .util import is_non_empty_file
+
 def is_non_empty_r_file(file_path: str) -> bool:
     """
     Checks if a path refers to a non-empty R file.
@@ -19,8 +21,8 @@ def is_non_empty_r_file(file_path: str) -> bool:
     :param file_path: The file path to check.
     :return: True if file_path is a non-empty R file, False otherwise.
     """
-    if os.path.exists(file_path) and (file_path.endswith('.R') or file_path.endswith('.r')):
-        if os.path.getsize(file_path) > 0:
+    if is_non_empty_file(file_path):
+        if file_path.endswith('.R') or file_path.endswith('.r'):
             return True
     return False
 
@@ -58,6 +60,31 @@ def count_non_empty_r_files(directory: str, file_prefix: str = "") -> int:
     return len(find_non_empty_r_files(directory, file_prefix))
 
 
+def has_config(root_path, folder, file_basename) -> bool:
+    """
+    Searches for a R configuration file in the `folder` which has
+    to be located in the `root_path`.
+
+    :param root_path: The root path of the project.
+    :param folder: The toolchain testing folder.
+    :param file_basename: The toolchain R config basename.
+    :return True, if there is a file with upper or lower case extension "R" which
+            is non-empty.
+    """
+    config_folder = os.path.join(root_path, folder)
+
+    config_path_upper = os.path.join(config_folder, file_basename+".R")
+    config_path_lower = os.path.join(config_folder, file_basename+".r")
+
+    if is_non_empty_r_file(config_path_upper):
+        return True
+
+    if is_non_empty_r_file(config_path_lower):
+        return True
+
+    return False
+
+
 def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
     """
     Validates the test paths by checking for non-empty R files within each test path.
@@ -92,9 +119,7 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
         if test_config['uses_testthat']:
             # All files must be in `tests/testthat` and there should be a file `tests/testthat.R`
             # Check whether there is a non-empty testthat config
-            config_path_upper = os.path.join(root_path, "tests/testthat.R")
-            config_path_lower = os.path.join(root_path, "tests/testthat.r")
-            has_testthat_config = is_non_empty_r_file(config_path_upper) or is_non_empty_r_file(config_path_lower)
+            has_testthat_config = has_config(root_path, "tests", "testthat")
             test_config['has_testthat_config'] = has_testthat_config
 
             # Fetch test artifacts
@@ -120,9 +145,7 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
         if test_config['uses_tinytest']:
             # All files must be in `inst/tinytest` and there should be a file `tests/tinytest.R`
             # Check whether there is a non-empty tinytest config
-            config_path_upper = os.path.join(root_path, "tests/tinytest.R")
-            config_path_lower = os.path.join(root_path, "tests/tinytest.r")
-            has_tinytest_config = is_non_empty_r_file(config_path_upper) or is_non_empty_r_file(config_path_lower)
+            has_tinytest_config = has_config(root_path, "tests", "tinytest")
             test_config['has_tinytest_config'] = has_tinytest_config
 
             # Fetch test artifacts

@@ -184,7 +184,8 @@ def parse_cmake_files(file_paths : List[str]) -> Optional[str]:
 
 def collect_testing_configuration(root_path: str):
     """
-    Analyses the repo and returns information extracted from CMake files (testing dependencies and definitions)
+    Analyses the repo and returns information extracted from CMake files,
+    i.e. testing dependencies and definitions.
 
     :param root_path: The root path of the project
     :return: A JSON object with the CMake file information.

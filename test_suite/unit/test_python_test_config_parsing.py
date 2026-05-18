@@ -126,7 +126,8 @@ def test_default_configuration(path):
 
     result = extract_testing_configuration(path)
 
-    assert len(result["testpaths"]) == 1
-    assert result["testpaths"][0] == "tests"
+    assert len(result["testpaths"]) == 2
+    assert result["testpaths"][0] == "test"
+    assert result["testpaths"][1] == "tests"
     assert result["python_files"] == []
 

@@ -61,10 +61,10 @@ def test_find_test_artifacts(config_data_path):
 
     result = find_test_artifacts(config_data_path)
 
-    assert result["has_pyproject_toml"] == True
-    assert result["has_pytest_toml"] == False
-    assert result["has_pytest_ini"] == True
-    assert result["has_tox_ini"] == False
-    assert result["has_setup_cfg"] == False
-    assert result["has_python_tests"] == True
+    assert result[0]["has_pyproject_toml"] == True
+    assert result[0]["has_pytest_toml"] == False
+    assert result[0]["has_pytest_ini"] == True
+    assert result[0]["has_tox_ini"] == False
+    assert result[0]["has_setup_cfg"] == False
+    assert result[0]["has_python_tests"] == True
 

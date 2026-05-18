@@ -21,6 +21,82 @@ from .detectors.check_cpp_test_artifacts import find_test_artifacts as find_cpp_
 
 from .detectors.check_test_types import has_nonempty_benchmark_folders
 
+
+def handle_python(row, clone_path):
+    """
+    Handles the analysis of the Python project located in `clone_path`
+    and stores results in `row`.
+
+    :param row: The CSV row to extend.
+    :param clone_path: The path into which the repo was cloned.
+    :return: The updated row.
+    """
+    testing_info, testing_type_folders = find_py_test_artifacts(clone_path)
+
+    row["has_pyproject_toml"] = testing_info["has_pyproject_toml"]
+    row["has_pytest_toml"] = testing_info["has_pytest_toml"]
+    row["has_pytest_ini"] = testing_info["has_pytest_ini"]
+    row["has_tox_ini"] = testing_info["has_tox_ini"]
+    row["has_setup_cfg"] = testing_info["has_setup_cfg"]
+    row["has_python_tests"] = testing_info["has_python_tests"]
+    row["has_requirements"] = os.path.exists(os.path.join(clone_path, 'requirements.txt'))
+    row["py_testing_types"] = testing_type_folders
+
+    return row
+
+
+def handle_r(row, clone_path):
+    """
+    Handles the analysis of the R project located in `clone_path`
+    and stores results in `row`.
+
+    :param row: The CSV row to extend.
+    :param clone_path: The path into which the repo was cloned.
+    :return: The updated row.
+    """
+
+    testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
+
+    row["has_r_config"] = testing_info["has_package_definition"]
+    #if testing_info["has_package_definition"]:
+    row["uses_testthat"] = testing_info["uses_testthat"]
+    row["has_testthat_config"] = testing_info["has_testthat_config"]
+    row["has_testthat_tests"] = testing_info["has_testthat_tests"]
+    row["uses_runit"] = testing_info["uses_runit"]
+    row["has_runit_tests"] = testing_info["has_runit_tests"]
+    row["uses_tinytest"] = testing_info["uses_tinytest"]
+    row["has_tinytest_config"] = testing_info["has_tinytest_config"]
+    row["has_tinytest_tests"] = testing_info["has_tinytest_tests"]
+    row["has_r_tests"] = testing_info["has_tests"]
+    row["r_testing_types"] = testing_type_folders
+
+    return row
+
+def handle_cpp(row, clone_path):
+    """
+    Handles the analysis of the C/C++ project located in `clone_path`
+    and stores results in `row`.
+
+    :param row: The CSV row to extend.
+    :param clone_path: The path into which the repo was cloned.
+    :return: The updated row.
+    """
+    testing_info, languages, testing_type_folders = find_cpp_test_artifacts(clone_path)
+
+    row["has_root_makefile"] = testing_info["has_root_makefile"]
+    row["has_root_cmakelists"] = testing_info["has_root_cmakelists"]
+    row["has_cmakelists"] = testing_info["has_cmakelists"]
+    row["uses_gtest"] = testing_info["uses_gtest"]
+    row["uses_catch2"] = testing_info["uses_catch2"]
+    row["has_cpp_tests"] = testing_info["tests_found"]
+    row["gtests_found"] = testing_info["gtests_found"]
+    row["has_test_folder"] = testing_info["has_test_folder"]
+    row["cmake_languages"] = languages
+    row["cpp_testing_types"] = testing_type_folders
+
+    return row
+
+
 def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                  clone_base_path : str, clone_only: bool,
                                  assume_cloned: bool) -> None:
@@ -92,10 +168,11 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             projects_with_dominant_lang[dom] = projects_with_dominant_lang[dom] + 1
 
                         for lang_pair in list(langs_sorted):
-                            if lang_pair[0] not in projects_per_lang:
-                                projects_per_lang[lang_pair[0]] = 1
+                            language = lang_pair[0]
+                            if language not in projects_per_lang:
+                                projects_per_lang[language] = 1
                             else:
-                                projects_per_lang[lang_pair[0]] = projects_per_lang[lang_pair[0]] + 1
+                                projects_per_lang[language] = projects_per_lang[language] + 1
 
                         # Now we go into the deeper analysis steps:
 
@@ -103,48 +180,15 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
                         # We search for Python test configurations and files.
                         if langs["has_python"]:
-                            py_testing_info, testing_type_folders = find_py_test_artifacts(clone_path)
-
-                            row["has_pyproject_toml"] = py_testing_info["has_pyproject_toml"]
-                            row["has_pytest_toml"] = py_testing_info["has_pytest_toml"]
-                            row["has_pytest_ini"] = py_testing_info["has_pytest_ini"]
-                            row["has_tox_ini"] = py_testing_info["has_tox_ini"]
-                            row["has_setup_cfg"] = py_testing_info["has_setup_cfg"]
-                            row["has_python_tests"] = py_testing_info["has_python_tests"]
-                            row["has_requirements"] = os.path.exists(os.path.join(clone_path, 'requirements.txt'))
-                            row["py_testing_types"] = testing_type_folders
+                            row = handle_python(row, clone_path)
 
                         # We search for R testing artifacts.
                         if langs["has_r"]:
-                            r_testing_info, testing_type_folders = find_r_test_artifacts(clone_path)
-
-                            row["has_r_config"] = r_testing_info["has_package_definition"]
-                            #if r_testing_info["has_package_definition"]:
-                            row["uses_testthat"] = r_testing_info["uses_testthat"]
-                            row["has_testthat_config"] = r_testing_info["has_testthat_config"]
-                            row["has_testthat_tests"] = r_testing_info["has_testthat_tests"]
-                            row["uses_runit"] = r_testing_info["uses_runit"]
-                            row["has_runit_tests"] = r_testing_info["has_runit_tests"]
-                            row["uses_tinytest"] = r_testing_info["uses_tinytest"]
-                            row["has_tinytest_config"] = r_testing_info["has_tinytest_config"]
-                            row["has_tinytest_tests"] = r_testing_info["has_tinytest_tests"]
-                            row["has_r_tests"] = r_testing_info["has_tests"]
-                            row["r_testing_types"] = testing_type_folders
+                            row = handle_r(row, clone_path)
 
                         # Handle C/C++:
                         if langs["has_c"] or langs["has_cpp"]:
-                            cpp_testing_info, languages, testing_type_folders = find_cpp_test_artifacts(clone_path)
-
-                            row["has_root_makefile"] = cpp_testing_info["has_root_makefile"]
-                            row["has_root_cmakelists"] = cpp_testing_info["has_root_cmakelists"]
-                            row["has_cmakelists"] = cpp_testing_info["has_cmakelists"]
-                            row["uses_gtest"] = cpp_testing_info["uses_gtest"]
-                            row["uses_catch2"] = cpp_testing_info["uses_catch2"]
-                            row["has_cpp_tests"] = cpp_testing_info["tests_found"]
-                            row["gtests_found"] = cpp_testing_info["gtests_found"]
-                            row["has_test_folder"] = cpp_testing_info["has_test_folder"]
-                            row["cmake_languages"] = languages
-                            row["cpp_testing_types"] = testing_type_folders
+                            row = handle_cpp(row, clone_path)
 
                 else: print(f"Skipping repo number {processed_repos+1} with"
                             f" {joss_id} and URL {repo_url}.")
@@ -187,7 +231,8 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                 # C++ fields
                 out_fieldnames += ["has_root_makefile", "has_root_cmakelists", "has_cmakelists",
                                    "cmake_languages", "uses_gtest", "uses_catch2",
-                                   "has_cpp_tests", "gtests_found", "has_test_folder", "cpp_testing_types"]
+                                   "has_cpp_tests", "gtests_found", "has_test_folder",
+                                   "cpp_testing_types"]
 
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,

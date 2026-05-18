@@ -34,7 +34,7 @@ def is_non_empty_folder(base_path: str) -> bool:
     """
 
     if not os.path.exists(base_path):
-            return False
+        return False
 
     for entry in os.scandir(base_path):
         if entry.is_file():
