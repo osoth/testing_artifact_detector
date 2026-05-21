@@ -106,4 +106,4 @@ def find_testing_type_folders_in_paths(root_path: str, base_paths : List[str]) -
             testing_type_folders = find_testing_type_folders(test_folder_path)
             all_testing_type_folders += testing_type_folders
 
-    return list(set(all_testing_type_folders))
+    return list(set(all_testing_type_folders)).sort()

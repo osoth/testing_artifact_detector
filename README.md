@@ -114,11 +114,6 @@ the cloned repositories are analysed and the final output is generated.
 
 # Data Validation and Consistency
 
-The tool will produce identical results for repeated runs on the same corpus (same input CSV, already cloned repositories),
-modulo ordering in the fields `py_testing_types`, `r_testing_types`, and`cpp_testing_types`. For checking the consistency,
-we propose to use the tool `csv-diff` with the parameter `--key joss_id`, e.g.
+The tool ensures the following properties:
 
-> csv_diff run1.csv run2.csv --key joss_id
-
-which will show the differences in the CSV files. The only differences should be the beforementioned fields
-concerning the order.
+- it will produce identical results for repeated runs on the same corpus (same input CSV, already cloned repositories).
