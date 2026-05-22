@@ -74,6 +74,7 @@ def find_test_artifacts(root_path: str) -> Dict[str, bool]:
 
 
     testing_type_folders = find_testing_type_folders_in_paths(root_path, default_test_folders)
+    print(f'C/C++ testing types: {testing_type_folders}')
 
     testing_data = json.loads(testing_config)
 

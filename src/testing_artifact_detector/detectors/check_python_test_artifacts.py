@@ -150,6 +150,7 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
     #print(f"Found files: {found_files}")
 
     testing_type_folders = find_testing_type_folders_in_paths(root_path, test_config["testpaths"])
+    print(f'Python testing types: {testing_type_folders}')
 
     found_configs = test_config["found_configs"]
 

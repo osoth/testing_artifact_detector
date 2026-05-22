@@ -23,7 +23,8 @@ def get_language_statistics(project_path: str) -> dict:
             ['cloc',
                   '--force-lang=C++,hpp', '--force-lang=C++,hxx',
                   '--exclude-lang=Text,Markdown,JSON,CSV,TeX,reStructuredText,TOML,YAML,\
-make,awk,INI,PO File,CMake,CSS,HTML,XML,Dockerfile,SVG,Rmd,SWIG,GLSL,diff,Unity-Prefab',
+make,awk,INI,PO File,CMake,CSS,HTML,XML,Dockerfile,SVG,Rmd,SWIG,GLSL,diff,Unity-Prefab,\
+Jupyter Notebook',
                   '--json', project_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -115,7 +115,7 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
 
     if test_config['has_package_definition']:
         has_tests = False
-
+        # TODO: modularise
         if test_config['uses_testthat']:
             # All files must be in `tests/testthat` and there should be a file `tests/testthat.R`
             # Check whether there is a non-empty testthat config
@@ -159,4 +159,9 @@ def find_test_artifacts(root_path: str) -> Tuple[Dict[str, bool], List[str]]:
 
         test_config['has_tests'] = has_tests
 
-    return test_config, list(set(all_testing_type_folders))
+    # Setify, listify and sort since a testing type folder could occur in multiple
+    # toolchain directories but we want a stable order.
+    testing_types = list(set(all_testing_type_folders))
+    testing_types.sort()
+    print(f'R testing types: {testing_types}')
+    return test_config, testing_types
