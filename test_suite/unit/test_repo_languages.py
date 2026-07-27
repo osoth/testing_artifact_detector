@@ -10,6 +10,10 @@ import json
 from src.testing_artifact_detector.repo_languages import (analyse_languages_json,
                                                            filter_language_statistics, cleanup_languages)
 
+from src.testing_artifact_detector.config_parsers.cloc_config_parser import (get_cloc_excludes,
+                                                                             CLOC_DEFAULT_EXCLUDES)
+
+
 @pytest.fixture
 def path():
     return os.path.dirname(__file__)
@@ -20,7 +24,40 @@ def testdata_directory(path):
 
 
 """
-Tests for parse_r_test_configs.py
+Tests for cloc_config_parser.py
+"""
+
+def test_missing_cloc_excludes_file(testdata_directory) -> None:
+    """
+    Tests whether a non-existing config file yields
+    the default cloc language exclusion configuration.
+
+    :param testdata_directory: The test_data directory
+    :return:
+    """
+    cfg_file = os.path.join(testdata_directory, "clocx.cfg")
+
+    exclude_str = get_cloc_excludes(cfg_file)
+
+    assert exclude_str == CLOC_DEFAULT_EXCLUDES
+
+def test_cloc_excludes_with_empty_line(testdata_directory) -> None:
+    """
+    Tests whether the mock config file with an empty line yields
+    the default cloc language exclusion configuration.
+
+    :param testdata_directory: The test_data directory
+    :return:
+    """
+    cfg_file = os.path.join(testdata_directory, "cloc.cfg")
+
+    exclude_str = get_cloc_excludes(cfg_file)
+
+    assert exclude_str == CLOC_DEFAULT_EXCLUDES
+
+
+"""
+Tests for repo_languages.py
 """
 
 def test_cleanup_languages(testdata_directory) -> None:

@@ -54,9 +54,16 @@ In the next step
 
 the cloned repositories are analysed and the final output is generated.
 
+The tool provides an option `--cloc-config` to specify the languages to exclude by cloc. This parameter
+takes the path to a configuration file which contains each excluded language in one line.
+A sample configuration, i.e. the exclusions used for the eScience 2026 submission, can be found
+in the root folder. If no configuration is given, default exclusions are set and printed to the
+command line.
+
 # Project Structure:
 
 ```
+├── escience_cloc.cfg # cloc config for reproducing eScience2026 results
 ├── LICENSE
 ├── pyproject.toml
 ├── README.md
@@ -65,6 +72,7 @@ the cloned repositories are analysed and the final output is generated.
 │       ├── cli.py
 │       ├── clone_repo.py # Git cloning infrastructure
 │       ├── config_parsers # Scripts for parsing configuration files
+|       |   ├── cloc_config_parser.py
 │       │   ├── cpp_test_config_parser.py
 │       │   ├── __init__.py
 │       │   ├── python_test_config_parser.py
@@ -84,6 +92,7 @@ the cloned repositories are analysed and the final output is generated.
     └── unit
         ├── __init__.py
         ├── test_data
+        │   ├── cloc.cfg
         │   ├── config_data
         │   │   ├── Python # Sample test configuration files and source files for Python
         │   │   │   ├── empty_pytest.toml

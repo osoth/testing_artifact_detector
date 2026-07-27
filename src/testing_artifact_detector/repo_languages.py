@@ -10,10 +10,11 @@ import subprocess
 import json
 from typing import Dict, List, Tuple
 
-def get_language_statistics(project_path: str) -> dict:
+def get_language_statistics(project_path: str, lang_exclude_param: str) -> dict:
     """
     Uses cloc to get language statistics for a given project path.
 
+    :param lang_exclude_param: The languages to exclude by cloc.
     :param project_path: The path to the project directory.
     :return: A dictionary containing the `cloc`language statistics.
     """
@@ -22,10 +23,7 @@ def get_language_statistics(project_path: str) -> dict:
         result = subprocess.run(
             ['cloc',
                   '--force-lang=C++,hpp', '--force-lang=C++,hxx',
-                  '--exclude-lang=Text,Markdown,JSON,CSV,TeX,reStructuredText,TOML,YAML,\
-make,awk,INI,PO File,CMake,CSS,HTML,XML,Dockerfile,SVG,Rmd,SWIG,GLSL,diff,Unity-Prefab,\
-Jupyter Notebook',
-                  '--json', project_path],
+                   lang_exclude_param, '--json', project_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True
@@ -172,15 +170,16 @@ def analyse_languages_json(languages_json) -> tuple[str, dict[str, bool], list[t
     return dominant_language, language_presence, sorted_languages
 
 
-def analyse_languages(project_path) -> tuple[str, dict[str, bool], list[tuple[str, int]]]:
+def analyse_languages(project_path, lang_exclude_param) -> tuple[str, dict[str, bool], list[tuple[str, int]]]:
     """
     Analyses the given project_path and returns the dominant language and information
     about language presence.
 
+    :param lang_exclude_param: The languages to exclude by cloc.
     :param project_path: The project path to analyse using `cloc`.
     :return: Dominant language, a dictionary indicating the presence of specific languages
              and the languages sorted by occurrence.
     """
-    language_statistics = get_language_statistics(project_path)
+    language_statistics = get_language_statistics(project_path, lang_exclude_param)
 
     return analyse_languages_json(language_statistics)

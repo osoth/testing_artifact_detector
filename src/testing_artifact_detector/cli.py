@@ -13,6 +13,7 @@ from datetime import datetime
 #from typing import List, Set, Tuple
 
 from .clone_repo import clone_repo
+from .config_parsers.cloc_config_parser import get_cloc_excludes
 from .repo_languages import analyse_languages
 
 from .detectors.check_r_test_artifacts import find_test_artifacts as find_r_test_artifacts
@@ -99,7 +100,7 @@ def handle_cpp(row, clone_path):
 
 def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                                  clone_base_path : str, clone_only: bool,
-                                 assume_cloned: bool) -> None:
+                                 assume_cloned: bool, cloc_excludes: str) -> None:
     """
     Processes a CSV file, iterates over rows to handle repository cloning and path finding.
 
@@ -108,6 +109,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
     :param clone_only: States whether only cloning shall be done.
     :param clone_base_path: The path to clone all repos into.
     :param assume_cloned: Whether the repo should already have been cloned.
+    :param cloc_excludes: The cloc language exclude parameter.
     """
     try:
         with open(csv_file_path, mode='r', newline='', encoding='utf-8') as file:
@@ -161,7 +163,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
                     if not clone_only and clone_result is not None:
                         clone_path = clone_result[1]
-                        dom, langs, langs_sorted = analyse_languages(clone_path)
+                        dom, langs, langs_sorted = analyse_languages(clone_path, cloc_excludes)
                         row["dominant_lang"] = dom
                         row["has_python"] = langs["has_python"]
                         row["has_r"] = langs["has_r"]
@@ -270,6 +272,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--in-file", required=True, help="Input CSV path.")
     p.add_argument("--out-file", required=True, help="Output CSV path.")
+    p.add_argument("--cloc-config", required=False, default="cloc.cfg",
+                   help="The CLOC language excludes config file.")
     p.add_argument("--clone-dir", required=False,
                    help="The directory to clone the repositories into.")
     p.add_argument("--assume-cloned", type=bool, default=False,
@@ -285,10 +289,16 @@ def main() -> None:
     :return:
     """
     args = parse_args()
+
+    cloc_exclude_param = get_cloc_excludes(args.cloc_config)
+
+    print(f"Will use the following CLOC excludes:\n'{cloc_exclude_param}'")
+
     process_csv_and_handle_repos(
         csv_file_path=args.in_file,
         csv_outfile_path=args.out_file,
         clone_base_path=args.clone_dir,
         clone_only=args.clone_only,
-        assume_cloned=args.assume_cloned
+        assume_cloned=args.assume_cloned,
+        cloc_excludes=cloc_exclude_param
     )
