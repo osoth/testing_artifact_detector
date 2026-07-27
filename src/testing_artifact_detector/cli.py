@@ -127,29 +127,37 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
 
             for row in reader:
                 # get existing relevant fields
-                joss_id = row.get("joss_id", "")
+                project_id = row.get("project_id", "")
+                # Be backwards compatible if someone uses 'joss_id'
+                if project_id == "":
+                    project_id = row.get("joss_id", "")
+                    if project_id != "":
+                        print(f"[DEPRECATION] Primary key 'joss_id' is legacy"
+                              f" and will be replaced by 'project_id' in"
+                              f" future versions.")
+
                 repo_url = row.get("repo_url", "")
                 repo_status_code = row.get("repo_status_code", "")
 
                 pattern = r'^https?://(?:www\.)?github\.com/.*'
 
                 if repo_status_code == "200" and (re.match(pattern, repo_url) is not None):
-                    print(f"Crawling {joss_id} with URL {repo_url}.")
+                    print(f"Crawling {project_id} with URL {repo_url}.")
 
-                    clone_result = clone_repo(joss_id, repo_url, clone_base_path)
+                    clone_result = clone_repo(project_id, repo_url, clone_base_path)
 
                     if clone_result is not None:
                         if clone_result[0]:
                             cloned_repos += 1
                             row["clone_date"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
                             if assume_cloned:
-                                print(f"[WARN] Repo {joss_id} with URL {repo_url} was cloned"
+                                print(f"[WARN] Repo {project_id} with URL {repo_url} was cloned"
                                       f" but should have existed!")
                         else:
                             existing_repos += 1
                     else:
                         print(f"Failed to clone repo number {processed_repos} with"
-                              f" {joss_id} and URL {repo_url}.")
+                              f" {project_id} and URL {repo_url}.")
 
                     if not clone_only and clone_result is not None:
                         clone_path = clone_result[1]
@@ -191,13 +199,13 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
                             row = handle_cpp(row, clone_path)
 
                 else: print(f"Skipping repo number {processed_repos+1} with"
-                            f" {joss_id} and URL {repo_url}.")
+                            f" {project_id} and URL {repo_url}.")
 
                 results.append(row)
 
                 processed_repos += 1
                 print(f"Finished analysis of repo number {processed_repos} with"
-                      f" {joss_id} and URL {repo_url}.")
+                      f" {project_id} and URL {repo_url}.")
 
     except FileNotFoundError as e:
         print(f"The file {csv_file_path} was not found: {e}.")
