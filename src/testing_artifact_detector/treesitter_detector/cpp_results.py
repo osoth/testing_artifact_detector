@@ -1,5 +1,5 @@
 """
-Result models and shared constants for Tree-sitter based CMake analysis.
+Result models and shared constants for Tree-sitter based C++ analysis.
 """
 
 from __future__ import annotations
@@ -8,35 +8,36 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 
-TEST_COMMANDS = {"add_test", "enable_testing", "gtest_discover_tests"}
-FRAMEWORK_KEYWORDS = {"gtest", "googletest", "catch2"}
-PROJECT_KEYWORDS = {"project"}
-CMAKE_CONTROL_KEYWORDS = {
-	"ANDROID",
-	"ARCHIVE_OUTPUT_DIRECTORY",
-	"BINARY_DIR",
-	"COMPAT_VERSION",
-	"CXX_EXTENSIONS",
-	"DESCRIPTION",
-	"EXPORT_NAME",
-	"HOMEPAGE_URL",
-	"IMPORTED",
-	"LANGUAGES",
-	"LINKER_LANGUAGE",
-	"NAME",
-	"NO_SYSTEM_FROM_IMPORTED",
-	"PROJECT_NAME",
-	"VERSION",
-	"VERSION_MAJOR",
-	"VERSION_MINOR",
-	"VERSION_PATCH",
-	"VERSION_TWEAK",
+GTEST_INCLUDE_NAMES = {
+	"gtest/gtest.h",
+	"gtest/gtest-spi.h",
+	"gmock/gmock.h",
+	"gmock/gmock-more-matchers.h",
+}
+
+CATCH2_INCLUDE_NAMES = {
+	"catch2/catch.hpp",
+	"catch.hpp",
+}
+
+GTEST_TEST_MACROS = {
+	"TEST",
+	"TEST_F",
+	"TEST_P",
+	"TYPED_TEST",
+	"TYPED_TEST_P",
+}
+
+CATCH2_TEST_MACROS = {
+	"TEST_CASE",
+	"SCENARIO",
+	"SCENARIO_METHOD",
 }
 
 
 @dataclass(frozen=True)
-class CMakeCommand:
-	"""A single command invocation extracted from a CMake file."""
+class CppCommand:
+	"""A single C++ test-related invocation extracted from a source file."""
 
 	name: str
 	arguments: list[str]
@@ -44,20 +45,20 @@ class CMakeCommand:
 
 
 @dataclass
-class CMakeFileAnalysis:
-	"""Per-file analysis result for one CMake source file."""
+class CppFileAnalysis:
+	"""Per-file analysis result for one C++ source file."""
 
 	file_path: str
 	exists: bool = True
 	parsed: bool = False
-	has_cmakelists: bool = False
 	tests_found: bool = False
 	gtests_found: bool = False
 	uses_gtest: bool = False
 	uses_catch2: bool = False
-	enable_testing: bool = False
-	languages: list[str] = field(default_factory=list)
-	commands_found: list[CMakeCommand] = field(default_factory=list)
+	includes_gtest: bool = False
+	includes_catch2: bool = False
+	test_macros_found: list[str] = field(default_factory=list)
+	commands_found: list[CppCommand] = field(default_factory=list)
 	parse_errors: list[str] = field(default_factory=list)
 
 	def as_dict(self) -> dict[str, Any]:
@@ -67,13 +68,13 @@ class CMakeFileAnalysis:
 			"file_path": self.file_path,
 			"exists": self.exists,
 			"parsed": self.parsed,
-			"has_cmakelists": self.has_cmakelists,
 			"tests_found": self.tests_found,
 			"gtests_found": self.gtests_found,
 			"uses_gtest": self.uses_gtest,
 			"uses_catch2": self.uses_catch2,
-			"enable_testing": self.enable_testing,
-			"languages": list(self.languages),
+			"includes_gtest": self.includes_gtest,
+			"includes_catch2": self.includes_catch2,
+			"test_macros_found": list(self.test_macros_found),
 			"commands_found": [
 				{
 					"name": command.name,
@@ -87,32 +88,26 @@ class CMakeFileAnalysis:
 
 
 @dataclass
-class CMakeRepositoryAnalysis:
+class CppRepositoryAnalysis:
 	"""Aggregate analysis across a repository or a file set."""
 
-	cmake_files: list[str] = field(default_factory=list)
-	analyses: list[CMakeFileAnalysis] = field(default_factory=list)
-	has_cmakelists: bool = False
+	cpp_files: list[str] = field(default_factory=list)
+	analyses: list[CppFileAnalysis] = field(default_factory=list)
 	tests_found: bool = False
 	gtests_found: bool = False
 	uses_gtest: bool = False
 	uses_catch2: bool = False
-	enable_testing: bool = False
-	languages: list[str] = field(default_factory=list)
 
 	def as_dict(self) -> dict[str, Any]:
 		"""Convert the repository analysis into a serialisable dictionary."""
 
 		return {
-			"cmake_files": list(self.cmake_files),
+			"cpp_files": list(self.cpp_files),
 			"analyses": [analysis.as_dict() for analysis in self.analyses],
-			"has_cmakelists": self.has_cmakelists,
 			"tests_found": self.tests_found,
 			"gtests_found": self.gtests_found,
 			"uses_gtest": self.uses_gtest,
 			"uses_catch2": self.uses_catch2,
-			"enable_testing": self.enable_testing,
-			"languages": list(self.languages),
 		}
 
 
