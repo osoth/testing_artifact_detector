@@ -7,6 +7,7 @@ import argparse
 #import sys
 import csv
 import os
+import traceback
 #import time
 import re
 from datetime import datetime
@@ -212,7 +213,7 @@ def process_csv_and_handle_repos(csv_file_path : str, csv_outfile_path : str,
     except FileNotFoundError as e:
         print(f"The file {csv_file_path} was not found: {e}.")
     except Exception as e:
-        print(f"An error occurred: {e.with_traceback()}")
+        print(f"An error occurred:\n{traceback.format_exc()}")
 
     try:
         with open(csv_outfile_path, mode='w', newline='', encoding='utf-8') as csvfile:

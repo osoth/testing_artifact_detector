@@ -31,7 +31,16 @@ def get_language_statistics(project_path: str, lang_exclude_param: str) -> dict:
 
         # Parse the JSON output
         cloc_output_json = result.stdout.decode('utf-8')
-        language_statistics = json.loads(cloc_output_json)
+        start_idx = cloc_output_json.find('{')
+        end_idx = cloc_output_json.rfind('}') + 1
+
+        if start_idx != -1 and end_idx != 0:
+            clean_json = cloc_output_json[start_idx:end_idx]
+        else:
+            # Fallback in case the output contains no JSON brackets
+            clean_json = cloc_output_json 
+
+        language_statistics = json.loads(clean_json)
 
         return language_statistics
     except subprocess.CalledProcessError as e:
