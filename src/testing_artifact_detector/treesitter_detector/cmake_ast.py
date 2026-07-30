@@ -11,16 +11,26 @@ from .results import CMAKE_CONTROL_KEYWORDS, CMakeCommand, CMakeFileAnalysis, FR
 
 def iter_command_nodes(node: Any):
 	"""Yield CMake command nodes from the parse tree."""
-
-	stack = [node]
-	while stack:
-		current = stack.pop()
+	cursor = node.walk()
+	has_next = True
+	
+	while has_next:
+		current = cursor.node
 		node_type = getattr(current, "type", "")
+		
 		if looks_like_command_node(node_type):
 			yield current
-
-		children = list(getattr(current, "children", []))
-		stack.extend(reversed(children))
+			
+		if cursor.goto_first_child():
+			continue
+		if cursor.goto_next_sibling():
+			continue
+			
+		has_next = False
+		while cursor.goto_parent():
+			if cursor.goto_next_sibling():
+				has_next = True
+				break
 
 
 def extract_command(node: Any, source_bytes: bytes) -> CMakeCommand | None:

@@ -11,13 +11,22 @@ from .cpp_results import CATCH2_INCLUDE_NAMES, CATCH2_TEST_MACROS, CppCommand, C
 
 def iter_relevant_nodes(node: Any):
 	"""Yield nodes that may carry C++ test signals."""
-
-	stack = [node]
-	while stack:
-		current = stack.pop()
-		yield current
-		children = list(getattr(current, "children", []))
-		stack.extend(reversed(children))
+	cursor = node.walk()
+	has_next = True
+	
+	while has_next:
+		yield cursor.node
+		
+		if cursor.goto_first_child():
+			continue
+		if cursor.goto_next_sibling():
+			continue
+			
+		has_next = False
+		while cursor.goto_parent():
+			if cursor.goto_next_sibling():
+				has_next = True
+				break
 
 
 def extract_command(node: Any, source_bytes: bytes) -> CppCommand | None:
