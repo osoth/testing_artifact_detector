@@ -69,15 +69,23 @@ def update_framework_flags(analysis: CMakeFileAnalysis, arguments: list[str]) ->
 
 	This only means "the project depends on this framework", not "a test was
 	registered" - ``tests_found``/``gtests_found`` are set separately, only by
-	an actual ``add_test``/``gtest_discover_tests``/``enable_testing`` command.
+	an actual ``add_test``/``gtest_discover_tests`` command.
+
+	Only the first argument (the package name, e.g. ``find_package(GTest ...)``)
+	is checked, matching the baseline's regex, which only captures that
+	position - not every argument of the call (so e.g. a package required via
+	``COMPONENTS GTest`` on some other package is deliberately not counted).
 	"""
 
-	lower_arguments = {argument.lower() for argument in arguments}
+	if not arguments:
+		return
 
-	if lower_arguments & {"gtest", "googletest"}:
+	package_name = arguments[0].lower()
+
+	if package_name in {"gtest", "googletest"}:
 		analysis.uses_gtest = True
 
-	if "catch2" in lower_arguments:
+	if package_name == "catch2":
 		analysis.uses_catch2 = True
 
 

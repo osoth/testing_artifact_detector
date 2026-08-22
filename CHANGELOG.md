@@ -122,11 +122,76 @@ Fallstudien in §4.4 der Konzeption:
   `FetchContent`+`gtest_discover_tests`-Setups ganz ohne `find_package(GTest)` —
   Baseline kann das strukturell nicht erfassen, Tree-sitter korrekt.
 
+## 6. Heuristiken exakt an Baseline angeglichen
+
+Rückfrage: Sind die verglichenen `cmake_*`-Felder jetzt wirklich exakt dieselbe
+Heuristik wie die Baseline, sodass jede verbleibende Abweichung nur noch an
+AST vs. Regex liegt — nicht an unterschiedlichen/breiteren Prüfbedingungen?
+Antwort: nein, vier echte Heuristik-Unterschiede gefunden und angeglichen:
+
+- **A)** `uses_gtest` wurde in Schritt 4/5 auch über `gtest_discover_tests`
+  gesetzt (Repo `558` u. a., 6 Fälle). Baseline setzt `uses_gtest` ausschließlich
+  über `find_package`. Entfernt (`detector.py`); bewusst nicht ersatzlos
+  gelöscht, sondern als Kommentar an Ort und Stelle sowie hier dokumentiert —
+  ist eine sachlich korrekte, aber über die Baseline hinausgehende
+  Heuristik-Erweiterung, die für eine spätere, separate Auswertung (nicht den
+  reinen Technologie-Vergleich) wieder aktiviert werden kann.
+- **B)** `tests_found` wurde durch ein bloßes `enable_testing()` gesetzt
+  (`TEST_COMMANDS` enthielt `"enable_testing"`). Baseline prüft dafür nur
+  `add_test`/`gtest_discover_tests`. `TEST_COMMANDS` auf diese zwei verengt
+  (`results.py`); das separate `enable_testing`-Feld bleibt unverändert.
+- **C)** `find_package`-Check prüfte alle Argumente des Aufrufs statt nur das
+  erste (den Paketnamen), wie die Baseline-Regex (`group(2)`). Auf
+  `arguments[0]` beschränkt (`cmake_ast.py::update_framework_flags`).
+- **D)** `has_cmakelists` zählte nur eine literale `CMakeLists.txt`, Baseline
+  zählt jede `CMakeLists.txt(.in)`/`*.cmake(.in)`-Datei. Feld auf `True` für
+  jede erfolgreich gelesene CMake-Kandidatendatei umgestellt (`detector.py`);
+  `CMakeLists.txt.in` zusätzlich in `source_collector.py::CMAKE_FILENAMES`
+  aufgenommen, damit auch diese Dateien überhaupt erfasst/gescannt werden.
+
+Regressionstests ergänzt: `enable_testing()` allein → `tests_found=False`;
+`find_package(Foo COMPONENTS GTest)` → `uses_gtest=False`; nur `utils.cmake`
+ohne `CMakeLists.txt` → `has_cmakelists=True`; bestehender
+`gtest_discover_tests`-Test um `uses_gtest=False` korrigiert. 32 Tests grün.
+
+Neuer Lauf: **14 Abweichungen** (von 20), davon nur noch **4 echte inhaltliche
+Abweichungen** (die übrigen 10 sind zwei Repos mit fehlenden Daten auf einer
+Seite). `has_cmake_file` und `gtests_found` jetzt beide bei **0 Abweichungen**.
+
+| Indikator | Übereinstimmung | Abweichungen |
+|---|---|---|
+| has_cmake_file | 138✓ / 65✗ | 0 |
+| uses_gtest | 11✓ / 191✗ | 1 |
+| uses_catch2 | 7✓ / 195✗ | 1 |
+| tests_found | 76✓ / 125✗ | 2 |
+| gtests_found | 11✓ / 192✗ | 0 |
+
+Die 4 verbleibenden Abweichungen bestätigen — nach Angleichung aller
+Heuristiken — ausschließlich die schon in Schritt 5 identifizierten
+Parsing-Technologie-Grenzen der Baseline, jetzt mit zwei zusätzlichen
+Beispielen pro Kategorie:
+- **Kommentierter Code wird von der Baseline mitgezählt:** Repo `7957`
+  (`uses_catch2`, `#find_package(Catch2 REQUIRED)`) und neu Repo `3061`
+  (`tumcms/Open-Infra-Platform`, `uses_gtest`, `#find_package(GTest REQUIRED)`).
+- **Substring-Match auf Wrapper-Makros ist "richtig aus falschem Grund":**
+  Repo `3959` (`dune_add_test(...)`) und neu Repo `153`
+  (`KitwareMedical/SlicerITKUltrasound`, `ExternalData_add_test(...)`).
+
+Damit ist der CMake-vs-CMake-Vergleich jetzt ein reiner Parsing-Technologie-Vergleich:
+jede verbleibende Abweichung lässt sich auf eine der drei in Schritt 5 genannten
+lexikalischen Grenzen der Baseline zurückführen, nicht mehr auf unterschiedliche
+Prüfbedingungen zwischen den beiden Tools.
+
 ## Offene Punkte
 
 - C++-Quellcode-Ebene (`cpp_*`) noch nicht in den fairen Vergleich integriert —
   geplant als eigener Auswertungsschritt für F03/Cross-Language-Mapping (§4.4),
   siehe `Checklist.md`.
-- `dune_add_test`-artige Wrapper-Makros werden von Tree-sitter aktuell nicht
-  aufgelöst (erfordert Makro-/Funktionsdefinitions-Resolution in CMake, außerhalb
-  des aktuellen Scopes).
+- A) und B) aus Schritt 6 sind sachlich korrekte Heuristik-Erweiterungen über die
+  Baseline hinaus (GTest-Erkennung über `gtest_discover_tests`; ggf. auch
+  `enable_testing()` als schwaches Testindiz). Kandidaten für eine bewusste,
+  separat ausgewiesene Erweiterung, sobald der reine Technologie-Vergleich
+  abgeschlossen/dokumentiert ist.
+- `dune_add_test`/`ExternalData_add_test`-artige Wrapper-Makros werden von
+  Tree-sitter aktuell nicht aufgelöst (erfordert Makro-/Funktionsdefinitions-
+  Resolution in CMake, außerhalb des aktuellen Scopes).

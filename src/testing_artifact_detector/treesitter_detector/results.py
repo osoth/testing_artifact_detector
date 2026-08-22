@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 
-TEST_COMMANDS = {"add_test", "enable_testing", "gtest_discover_tests"}
+TEST_COMMANDS = {"add_test", "gtest_discover_tests"}
 FRAMEWORK_KEYWORDS = {"gtest", "googletest", "catch2"}
 PROJECT_KEYWORDS = {"project"}
 CMAKE_CONTROL_KEYWORDS = {

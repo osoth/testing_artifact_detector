@@ -55,7 +55,11 @@ def parse_cmake_file(file_path: str | Path, parser: Any | None = None) -> CMakeF
 		analysis.parse_errors.append(str(error))
 		return analysis
 
-	analysis.has_cmakelists = path.name.lower() == "cmakelists.txt"
+	# Any file reaching this point was already filtered as a CMake candidate by
+	# source_collector, so its mere presence counts as "has a CMake file" -
+	# matching the baseline's bool(any matched file) semantics instead of only
+	# a literal top-level CMakeLists.txt.
+	analysis.has_cmakelists = True
 	analysis.parsed = True
 
 	root_node = tree.root_node
@@ -72,7 +76,11 @@ def parse_cmake_file(file_path: str | Path, parser: Any | None = None) -> CMakeF
 		if command_name == "gtest_discover_tests":
 			analysis.tests_found = True
 			analysis.gtests_found = True
-			analysis.uses_gtest = True
+			# Deliberately not setting uses_gtest here: the baseline only infers
+			# uses_gtest from a find_package(GTest) call, never from
+			# gtest_discover_tests. See CHANGELOG.md for the rationale - this
+			# would be a legitimate heuristic extension, but is kept out of the
+			# baseline-parity comparison for now.
 
 		if command_name == "find_package":
 			update_framework_flags(analysis, command.arguments)

@@ -45,6 +45,7 @@ CPP_SOURCE_EXTENSIONS = {
 
 CMAKE_FILENAMES = {
 	"cmakelists.txt",
+	"cmakelists.txt.in",
 }
 
 CMAKE_EXTENSIONS = {

@@ -46,18 +46,12 @@ class Indicator:
 # CMake-derived fields. Both sides look at the same kind of file with the
 # same intent, just with a different parsing technique.
 FAIR_INDICATORS: tuple[Indicator, ...] = (
-	Indicator("has_cmake_file", "has_cmakelists", "cmake_files_present"),
+	Indicator("has_cmake_file", "has_cmakelists", "has_cmakelists"),
 	Indicator("uses_gtest (find_package)", "uses_gtest", "cmake_uses_gtest"),
 	Indicator("uses_catch2 (find_package)", "uses_catch2", "cmake_uses_catch2"),
-	Indicator("tests_found (add_test/gtest_discover_tests/enable_testing)", "has_cpp_tests", "cmake_tests_found"),
+	Indicator("tests_found (add_test/gtest_discover_tests)", "has_cpp_tests", "cmake_tests_found"),
 	Indicator("gtests_found (gtest_discover_tests)", "gtests_found", "cmake_gtests_found"),
 )
-
-# Note: the Tree-sitter side additionally treats a bare `enable_testing()`
-# (without any `add_test`) as `cmake_tests_found = True`, while the baseline
-# only matches `add_test`/`gtest_discover_tests`. This makes the Tree-sitter
-# side slightly broader for this one indicator; keep that in mind when
-# reading its disagreement counts.
 
 
 def to_bool(value: object) -> bool | None:
@@ -83,24 +77,6 @@ def resolve_column(columns: pd.Index, name: str, suffix: str) -> str:
 
 def load_csv(path: str) -> pd.DataFrame:
 	return pd.read_csv(path, dtype=str)
-
-
-def add_cmake_files_present_column(treesitter: pd.DataFrame) -> pd.DataFrame:
-	"""
-	Derive a 'has any CMake-like file' column from ``cmake_files_found``.
-
-	The Tree-sitter detector's own ``has_cmakelists`` field only counts a
-	literal top-level ``CMakeLists.txt``, while the baseline's equivalent
-	counts any ``CMakeLists.txt(.in)``/``*.cmake(.in)`` file anywhere in the
-	repo. ``cmake_files_found`` (a plain file count) matches the baseline's
-	broader definition, so it is used here instead.
-	"""
-
-	treesitter = treesitter.copy()
-	treesitter["cmake_files_present"] = treesitter["cmake_files_found"].apply(
-		lambda value: "True" if pd.notna(value) and int(value) > 0 else "False"
-	)
-	return treesitter
 
 
 def compare(baseline: pd.DataFrame, treesitter: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
@@ -248,7 +224,7 @@ def main() -> None:
 	args = parser.parse_args()
 
 	baseline = load_csv(args.regex_file)
-	treesitter = add_cmake_files_present_column(load_csv(args.ts_file))
+	treesitter = load_csv(args.ts_file)
 
 	print(f"Baseline rows: {len(baseline)}, Tree-sitter rows: {len(treesitter)}")
 

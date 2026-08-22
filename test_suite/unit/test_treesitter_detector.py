@@ -63,9 +63,39 @@ def test_parse_cmake_file_gtest_discover_tests_sets_gtests_found(tmp_path):
 
 	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
 
-	assert analysis.uses_gtest is True
+	# uses_gtest is deliberately NOT set here - the baseline only infers it from
+	# find_package(GTest), never from gtest_discover_tests. See CHANGELOG.md.
+	assert analysis.uses_gtest is False
 	assert analysis.gtests_found is True
 	assert analysis.tests_found is True
+
+
+def test_parse_cmake_file_enable_testing_alone_does_not_set_tests_found(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text("enable_testing()\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.enable_testing is True
+	assert analysis.tests_found is False
+
+
+def test_parse_cmake_file_find_package_only_checks_first_argument(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text("find_package(Foo COMPONENTS GTest)\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.uses_gtest is False
+
+
+def test_parse_cmake_file_has_cmakelists_true_for_non_cmakelists_filename(tmp_path):
+	file_path = tmp_path / "utils.cmake"
+	file_path.write_text("set(FOO 1)\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.has_cmakelists is True
 
 
 def test_parse_cmake_file_finds_commands_nested_in_if_and_function_blocks(tmp_path):
