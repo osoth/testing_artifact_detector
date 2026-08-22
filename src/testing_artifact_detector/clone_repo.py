@@ -18,10 +18,6 @@ def is_repo_accessible(repo_url: str, timeout: int = 15) -> Tuple[bool, str]:
     """
     Check whether a Git repository can be cloned before actually attempting it.
 
-    Uses ``git ls-remote``, which only fetches refs instead of the full
-    repository, to detect a private or deleted repository (or any other
-    access/network problem) cheaply and with a clear reason.
-
     :param repo_url: URL of the repository to check.
     :param timeout: Seconds to wait before giving up on the check.
     :return: (True, "") if the repository is accessible, otherwise (False, reason).
