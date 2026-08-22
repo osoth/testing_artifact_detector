@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
-from .cmake_ast import extract_command, extract_project_languages, iter_command_nodes, update_framework_flags
+from .cmake_ast import extract_commands, extract_project_languages, update_framework_flags
 from .results import (
 	CMakeFileAnalysis,
 	CMakeRepositoryAnalysis,
@@ -15,28 +15,13 @@ from .results import (
 	TEST_COMMANDS,
 	unique_sorted,
 )
+from .tree_sitter_backend import build_parser
 
 
 def build_cmake_parser():
-	"""
-	Build a Tree-sitter parser for CMake.
+	"""Build a Tree-sitter parser for CMake using the 'tree-sitter-cmake' grammar."""
 
-	The function tries the common Python bindings used for Tree-sitter language
-	packages and raises a clear error if no CMake grammar is available.
-	"""
-
-	parser_module = import_tree_sitter_parser()
-	language = load_cmake_language()
-
-	if parser_module is None or language is None:
-		raise RuntimeError(
-			"Tree-sitter CMake support is unavailable. Install a CMake grammar "
-			"package such as tree-sitter-languages or tree-sitter-cmake."
-		)
-
-	parser = parser_module.Parser()
-	assign_language(parser, language)
-	return parser
+	return build_parser("tree_sitter_cmake", "CMake")
 
 
 def parse_cmake_file(file_path: str | Path, parser: Any | None = None) -> CMakeFileAnalysis:
@@ -74,11 +59,7 @@ def parse_cmake_file(file_path: str | Path, parser: Any | None = None) -> CMakeF
 	analysis.parsed = True
 
 	root_node = tree.root_node
-	for command_node in iter_command_nodes(root_node):
-		command = extract_command(command_node, source_bytes)
-		if command is None:
-			continue
-
+	for command in extract_commands(root_node, source_bytes, parser.language):
 		analysis.commands_found.append(command)
 		command_name = command.name.lower()
 
@@ -135,72 +116,3 @@ def analyse_cmake_repository(
 	)
 	return result
 
-
-def import_tree_sitter_parser():
-	try:
-		import importlib
-
-		return importlib.import_module("tree_sitter")
-	except ImportError:
-		return None
-
-
-def load_cmake_language():
-	tree_sitter_module = import_tree_sitter_parser()
-	language_class = getattr(tree_sitter_module, "Language", None) if tree_sitter_module else None
-
-	try:
-		import importlib
-
-		get_language = importlib.import_module("tree_sitter_languages").get_language
-		return coerce_language_object(get_language("cmake"), language_class)
-	except Exception:
-		pass
-
-	try:
-		import importlib
-
-		tree_sitter_cmake = importlib.import_module("tree_sitter_cmake")
-		language_factory = getattr(tree_sitter_cmake, "language", None)
-		if callable(language_factory):
-			return coerce_language_object(language_factory(), language_class)
-
-		language_object = getattr(tree_sitter_cmake, "LANGUAGE", None)
-		if language_object is not None:
-			return coerce_language_object(language_object, language_class)
-	except Exception:
-		return None
-
-	return None
-
-
-def coerce_language_object(language_object: Any, language_class: Any) -> Any:
-	"""Convert PyCapsules returned by language packages into Language objects."""
-
-	if language_object is None:
-		return None
-
-	if language_class is None:
-		return language_object
-
-	if isinstance(language_object, language_class):
-		return language_object
-
-	try:
-		return language_class(language_object)
-	except TypeError:
-		return language_object
-
-
-def assign_language(parser: Any, language: Any) -> None:
-	try:
-		parser.language = language
-		return
-	except AttributeError:
-		pass
-
-	if hasattr(parser, "set_language"):
-		parser.set_language(language)
-		return
-
-	raise RuntimeError("Unsupported Tree-sitter parser implementation.")

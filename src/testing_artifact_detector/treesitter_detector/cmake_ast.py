@@ -1,82 +1,83 @@
 """
 Low-level AST helpers for extracting information from CMake syntax trees.
+
+Command extraction is done with the Tree-sitter Query API against the actual
+grammar shape of a command invocation (``normal_command`` with an
+``identifier`` and an ``argument_list`` of ``argument`` nodes), rather than by
+walking every node and guessing command boundaries from node-type substrings
+or splitting raw text on whitespace/commas.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from .results import CMAKE_CONTROL_KEYWORDS, CMakeCommand, CMakeFileAnalysis, FRAMEWORK_KEYWORDS
+from tree_sitter import Query, QueryCursor
+
+from .results import CMAKE_CONTROL_KEYWORDS, CMakeCommand, CMakeFileAnalysis
+
+_COMMAND_QUERY_SOURCE = """
+(normal_command
+  (identifier) @command.name
+  (argument_list (argument)* @command.arg)?)
+"""
+
+_query_cache: dict[int, Query] = {}
 
 
-def iter_command_nodes(node: Any):
-	"""Yield CMake command nodes from the parse tree."""
-	cursor = node.walk()
-	has_next = True
-	
-	while has_next:
-		current = cursor.node
-		node_type = getattr(current, "type", "")
-		
-		if looks_like_command_node(node_type):
-			yield current
-			
-		if cursor.goto_first_child():
-			continue
-		if cursor.goto_next_sibling():
-			continue
-			
-		has_next = False
-		while cursor.goto_parent():
-			if cursor.goto_next_sibling():
-				has_next = True
-				break
+def _command_query(language: Any) -> Query:
+	"""Build (and cache) the query used to find CMake command invocations."""
+
+	cache_key = id(language)
+	query = _query_cache.get(cache_key)
+	if query is None:
+		query = Query(language, _COMMAND_QUERY_SOURCE)
+		_query_cache[cache_key] = query
+	return query
 
 
-def extract_command(node: Any, source_bytes: bytes) -> CMakeCommand | None:
-	"""Extract the command name and its arguments from a syntax node."""
+def extract_commands(root_node: Any, source_bytes: bytes, language: Any) -> list[CMakeCommand]:
+	"""
+	Extract every command invocation (top-level or nested in an ``if``/
+	``function``/``foreach`` body) from a CMake parse tree.
+	"""
 
-	children = list(getattr(node, "children", []))
-	if not children:
-		return None
+	cursor = QueryCursor(_command_query(language))
 
-	command_name = None
-	arguments: list[str] = []
-
-	for child in children:
-		child_type = getattr(child, "type", "")
-		child_text = node_text(child, source_bytes)
-
-		if command_name is None and looks_like_identifier(child_type, child_text):
-			command_name = child_text.strip()
+	commands: list[CMakeCommand] = []
+	for _, captures in cursor.matches(root_node):
+		name_nodes = captures.get("command.name", [])
+		if not name_nodes:
 			continue
 
-		if is_delimiter(child_type, child_text):
-			continue
+		name_node = name_nodes[0]
+		arguments = [node_text(argument_node, source_bytes) for argument_node in captures.get("command.arg", [])]
+		commands.append(
+			CMakeCommand(
+				name=node_text(name_node, source_bytes),
+				arguments=arguments,
+				line=line_number(name_node),
+			)
+		)
 
-		if child_type.lower() in {"comment", "line_comment"}:
-			continue
-
-		if child_text:
-			arguments.extend(tokenise_argument_text(child_text))
-
-	if not command_name:
-		return None
-
-	line = getattr(node, "start_point", None)
-	line_number = line[0] + 1 if line is not None else None
-	return CMakeCommand(name=command_name, arguments=arguments, line=line_number)
+	return commands
 
 
 def update_framework_flags(analysis: CMakeFileAnalysis, arguments: list[str]) -> None:
-	lower_arguments = [argument.lower() for argument in arguments]
-	if any(argument in FRAMEWORK_KEYWORDS for argument in lower_arguments):
-		analysis.uses_gtest = True
-		if any(argument in {"gtest", "googletest"} for argument in lower_arguments):
-			analysis.gtests_found = True
-			analysis.tests_found = True
+	"""
+	Update the declared-dependency flags from a ``find_package`` call.
 
-	if any(argument == "catch2" for argument in lower_arguments):
+	This only means "the project depends on this framework", not "a test was
+	registered" - ``tests_found``/``gtests_found`` are set separately, only by
+	an actual ``add_test``/``gtest_discover_tests``/``enable_testing`` command.
+	"""
+
+	lower_arguments = {argument.lower() for argument in arguments}
+
+	if lower_arguments & {"gtest", "googletest"}:
+		analysis.uses_gtest = True
+
+	if "catch2" in lower_arguments:
 		analysis.uses_catch2 = True
 
 
@@ -103,32 +104,6 @@ def extract_project_languages(arguments: list[str]) -> list[str]:
 	return languages
 
 
-def tokenise_argument_text(text: str) -> list[str]:
-	cleaned = text.replace("(", " ").replace(")", " ").replace(",", " ")
-	cleaned = cleaned.replace("\n", " ").replace("\t", " ")
-	return [token for token in cleaned.split() if token]
-
-
-def looks_like_command_node(node_type: str) -> bool:
-	lower_type = node_type.lower()
-	return "command" in lower_type or lower_type in {"call", "invocation"}
-
-
-def looks_like_identifier(node_type: str, text: str) -> bool:
-	if not text:
-		return False
-
-	lower_type = node_type.lower()
-	return lower_type in {"identifier", "word", "unquoted_argument", "argument"} or text[0].isalpha()
-
-
-def is_delimiter(node_type: str, text: str) -> bool:
-	if text in {"(", ")", ","}:
-		return True
-
-	return node_type.lower() in {"lparen", "rparen", "parenthesized_expression"}
-
-
 def looks_like_language_name(text: str) -> bool:
 	stripped = text.strip()
 	if not stripped:
@@ -139,6 +114,14 @@ def looks_like_language_name(text: str) -> bool:
 
 	allowed_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_+-#.")
 	return all(character in allowed_chars for character in stripped)
+
+
+def line_number(node: Any) -> int | None:
+	position = getattr(node, "start_point", None)
+	if position is None:
+		return None
+
+	return position[0] + 1
 
 
 def node_text(node: Any, source_bytes: bytes) -> str:

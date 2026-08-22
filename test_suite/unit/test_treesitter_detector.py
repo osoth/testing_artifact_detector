@@ -1,16 +1,12 @@
-"""Tests for the Tree-sitter based CMake detector modules."""
+"""Tests for the Tree-sitter based CMake and C++ detector modules."""
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from src.testing_artifact_detector.treesitter_detector import (
 	analyse_cpp_repository as package_analyse_cpp_repository,
 	build_cpp_parser as package_build_cpp_parser,
 	parse_cpp_file as package_parse_cpp_file,
-	cmake_ast,
 	cmake_parser,
-	cpp_ast,
 	cpp_parser,
 	detector,
 )
@@ -18,69 +14,84 @@ from src.testing_artifact_detector.treesitter_detector.results import CMakeFileA
 from src.testing_artifact_detector.treesitter_detector.cpp_results import CppFileAnalysis
 
 
-@dataclass
-class FakeNode:
-	type: str
-	text: str = ""
-	children: list[object] | None = None
-	start_point: tuple[int, int] = (0, 0)
-
-	def __post_init__(self):
-		if self.children is None:
-			self.children = []
-
-
-@dataclass
-class FakeTree:
-	root_node: FakeNode
-
-
-class FakeParser:
-	def __init__(self, tree: FakeTree):
-		self._tree = tree
-		self.language = None
-
-	def parse(self, source_bytes: bytes):
-		return self._tree
-
-
-def make_command(name: str, *arguments: str, line: int = 0) -> FakeNode:
-	children = [
-		FakeNode("identifier", name, start_point=(line, 0)),
-		FakeNode("lparen", "(", start_point=(line, 0)),
-	]
-	children.extend(FakeNode("argument", argument, start_point=(line, 0)) for argument in arguments)
-	children.append(FakeNode("rparen", ")", start_point=(line, 0)))
-	return FakeNode("command_invocation", children=children, start_point=(line, 0))
-
-
-def test_parse_cmake_file_uses_ast_helpers(tmp_path, monkeypatch):
-	monkeypatch.setattr(cmake_ast, "node_text", lambda node, source_bytes: getattr(node, "text", ""))
-
-	root = FakeNode(
-		"translation_unit",
-		children=[
-			make_command("project", "DemoProject", "LANGUAGES", "CXX", "C", "VERSION", "1.2"),
-			make_command("add_test", "NAME", "smoke", "COMMAND", "demo"),
-			make_command("find_package", "GTest", "REQUIRED"),
-			make_command("find_package", "Catch2", "REQUIRED"),
-		],
-	)
-	parser = FakeParser(FakeTree(root))
+def test_parse_cmake_file_uses_ast_helpers(tmp_path):
 	file_path = tmp_path / "CMakeLists.txt"
-	file_path.write_text("project(DemoProject LANGUAGES CXX C VERSION 1.2)\n")
+	file_path.write_text(
+		"project(DemoProject LANGUAGES CXX C VERSION 1.2)\n"
+		"add_test(NAME smoke COMMAND demo)\n"
+		"find_package(GTest REQUIRED)\n"
+		"find_package(Catch2 REQUIRED)\n"
+	)
 
-	analysis = detector.parse_cmake_file(file_path, parser=parser)
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
 
 	assert analysis.parsed is True
 	assert analysis.has_cmakelists is True
 	assert analysis.tests_found is True
-	assert analysis.gtests_found is True
+	assert analysis.gtests_found is False
 	assert analysis.uses_gtest is True
 	assert analysis.uses_catch2 is True
 	assert analysis.enable_testing is False
 	assert analysis.languages == ["C", "CXX"]
-	assert [command.name for command in analysis.commands_found] == ["add_test", "find_package", "find_package", "project"]
+	assert [command.name for command in analysis.commands_found] == ["project", "add_test", "find_package", "find_package"]
+
+
+def test_parse_cmake_file_find_package_catch2_does_not_imply_gtest(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text("find_package(Catch2 REQUIRED)\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.uses_catch2 is True
+	assert analysis.uses_gtest is False
+
+
+def test_parse_cmake_file_find_package_gtest_alone_does_not_set_gtests_found(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text("find_package(GTest REQUIRED)\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.uses_gtest is True
+	assert analysis.gtests_found is False
+	assert analysis.tests_found is False
+
+
+def test_parse_cmake_file_gtest_discover_tests_sets_gtests_found(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text("gtest_discover_tests(my_tests)\n")
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.uses_gtest is True
+	assert analysis.gtests_found is True
+	assert analysis.tests_found is True
+
+
+def test_parse_cmake_file_finds_commands_nested_in_if_and_function_blocks(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text(
+		"if(BUILD_TESTING)\n"
+		"    enable_testing()\n"
+		"    add_test(NAME nested COMMAND demo)\n"
+		"endif()\n"
+	)
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	assert analysis.enable_testing is True
+	assert analysis.tests_found is True
+	assert [command.name for command in analysis.commands_found] == ["enable_testing", "add_test"]
+
+
+def test_parse_cmake_file_keeps_quoted_arguments_as_single_tokens(tmp_path):
+	file_path = tmp_path / "CMakeLists.txt"
+	file_path.write_text('add_test(NAME "my long test name" COMMAND demo)\n')
+
+	analysis = detector.parse_cmake_file(file_path, parser=detector.build_cmake_parser())
+
+	[command] = analysis.commands_found
+	assert command.arguments == ["NAME", '"my long test name"', "COMMAND", "demo"]
 
 
 def test_analyse_cmake_repository_aggregates_results(monkeypatch):
@@ -122,27 +133,17 @@ def test_cmake_parser_facade_reexports_detector_functions():
 	assert cmake_parser.analyse_cmake_repository is detector.analyse_cmake_repository
 
 
-def make_cpp_node(node_type: str, text: str = "", children: list[object] | None = None, line: int = 0):
-	return FakeNode(type=node_type, text=text, children=children, start_point=(line, 0))
-
-
-def test_parse_cpp_file_detects_gtest_and_catch2(monkeypatch, tmp_path):
-	monkeypatch.setattr(cpp_ast, "node_text", lambda node, source_bytes: getattr(node, "text", ""))
-
-	root = FakeNode(
-		"translation_unit",
-		children=[
-			make_cpp_node("preproc_include", '#include <gtest/gtest.h>'),
-			make_cpp_node("preproc_include", '#include <catch2/catch.hpp>'),
-			make_cpp_node("call_expression", 'TEST(MySuite, Works)'),
-			make_cpp_node("call_expression", 'TEST_CASE("does things")'),
-		],
-	)
-	parser = FakeParser(FakeTree(root))
+def test_parse_cpp_file_detects_gtest_and_catch2(tmp_path):
 	file_path = tmp_path / "sample_test.cpp"
-	file_path.write_text('#include <gtest/gtest.h>\nTEST(MySuite, Works) {}\n')
+	file_path.write_text(
+		'#include <gtest/gtest.h>\n'
+		'#include "catch2/catch.hpp"\n'
+		'\n'
+		'TEST(MySuite, Works) { ASSERT_TRUE(true); }\n'
+		'TEST_CASE("does things") {}\n'
+	)
 
-	analysis = cpp_parser.parse_cpp_file(file_path, parser=parser)
+	analysis = cpp_parser.parse_cpp_file(file_path, parser=cpp_parser.build_cpp_parser())
 
 	assert analysis.parsed is True
 	assert analysis.tests_found is True
@@ -153,6 +154,28 @@ def test_parse_cpp_file_detects_gtest_and_catch2(monkeypatch, tmp_path):
 	assert analysis.includes_catch2 is True
 	assert "TEST" in analysis.test_macros_found
 	assert "TEST_CASE" in analysis.test_macros_found
+
+
+def test_parse_cpp_file_extracts_macro_arguments(tmp_path):
+	file_path = tmp_path / "sample_test.cpp"
+	file_path.write_text('TEST(FooTest, BarCase) {}\n')
+
+	analysis = cpp_parser.parse_cpp_file(file_path, parser=cpp_parser.build_cpp_parser())
+
+	[command] = analysis.commands_found
+	assert command.name == "TEST"
+	assert command.arguments == ["FooTest", "BarCase"]
+
+
+def test_parse_cpp_file_does_not_flag_ordinary_functions_as_tests(tmp_path):
+	file_path = tmp_path / "sample.cpp"
+	file_path.write_text('void notATest() { doWork(); }\n')
+
+	analysis = cpp_parser.parse_cpp_file(file_path, parser=cpp_parser.build_cpp_parser())
+
+	assert analysis.tests_found is False
+	assert analysis.test_macros_found == []
+	assert {command.name for command in analysis.commands_found} == {"notATest", "doWork"}
 
 
 def test_analyse_cpp_repository_aggregates_results(monkeypatch):

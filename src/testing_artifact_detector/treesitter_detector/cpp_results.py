@@ -34,6 +34,12 @@ CATCH2_TEST_MACROS = {
 	"SCENARIO_METHOD",
 }
 
+GENERIC_TEST_MACROS = {
+	"BOOST_AUTO_TEST_CASE",
+	"BOOST_FIXTURE_TEST_CASE",
+	"TEST_SUITE",
+	"CPPUNIT_TEST",
+}
 
 @dataclass(frozen=True)
 class CppCommand:

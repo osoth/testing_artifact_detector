@@ -5,6 +5,7 @@ The main function is obviously `clone_repo`.
 import os
 import time
 import subprocess
+import random
 from typing import Optional, Tuple
 
 def clone_repo(project_id : str, repo_url : str, clone_path : str) -> Optional[Tuple[bool, str]]:
@@ -29,7 +30,7 @@ def clone_repo(project_id : str, repo_url : str, clone_path : str) -> Optional[T
             print(f"Directory for repo {repo_url} already exists in {full_clone_path}")
             return False, full_clone_path
 
-        time.sleep(30)
+        time.sleep(random.uniform(2.0, 5.0))
         subprocess.run(["git", "clone", repo_url, full_clone_path], check=True)
         print(f"Successfully cloned: {repo_url} into {full_clone_path}")
         return True, full_clone_path

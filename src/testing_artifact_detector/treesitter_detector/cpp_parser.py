@@ -7,30 +7,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
-from .cpp_ast import extract_command, iter_relevant_nodes, update_cpp_flags
+from .cpp_ast import extract_commands, update_cpp_flags
 from .cpp_results import CppFileAnalysis, CppRepositoryAnalysis, unique_sorted
+from .tree_sitter_backend import build_parser
 
 
 def build_cpp_parser():
-	"""
-	Build a Tree-sitter parser for C++.
+	"""Build a Tree-sitter parser for C++ using the 'tree-sitter-cpp' grammar."""
 
-	The function tries the common Python bindings used for Tree-sitter language
-	packages and raises a clear error if no C++ grammar is available.
-	"""
-
-	parser_module = import_tree_sitter_parser()
-	language = load_cpp_language()
-
-	if parser_module is None or language is None:
-		raise RuntimeError(
-			"Tree-sitter C++ support is unavailable. Install a C++ grammar package "
-			"such as tree-sitter-languages or tree-sitter-cpp."
-		)
-
-	parser = parser_module.Parser()
-	assign_language(parser, language)
-	return parser
+	return build_parser("tree_sitter_cpp", "C++")
 
 
 def parse_cpp_file(file_path: str | Path, parser: Any | None = None) -> CppFileAnalysis:
@@ -61,11 +46,7 @@ def parse_cpp_file(file_path: str | Path, parser: Any | None = None) -> CppFileA
 	analysis.parsed = True
 
 	root_node = tree.root_node
-	for node in iter_relevant_nodes(root_node):
-		command = extract_command(node, source_bytes)
-		if command is None:
-			continue
-
+	for command in extract_commands(root_node, source_bytes, parser.language):
 		analysis.commands_found.append(command)
 		update_cpp_flags(analysis, command)
 
@@ -92,73 +73,3 @@ def analyse_cpp_repository(
 	result.uses_gtest = any(analysis.uses_gtest for analysis in analyses)
 	result.uses_catch2 = any(analysis.uses_catch2 for analysis in analyses)
 	return result
-
-
-def import_tree_sitter_parser():
-	try:
-		import importlib
-
-		return importlib.import_module("tree_sitter")
-	except ImportError:
-		return None
-
-
-def load_cpp_language():
-	tree_sitter_module = import_tree_sitter_parser()
-	language_class = getattr(tree_sitter_module, "Language", None) if tree_sitter_module else None
-
-	try:
-		import importlib
-
-		get_language = importlib.import_module("tree_sitter_languages").get_language
-		return coerce_language_object(get_language("cpp"), language_class)
-	except Exception:
-		pass
-
-	try:
-		import importlib
-
-		tree_sitter_cpp = importlib.import_module("tree_sitter_cpp")
-		language_factory = getattr(tree_sitter_cpp, "language", None)
-		if callable(language_factory):
-			return coerce_language_object(language_factory(), language_class)
-
-		language_object = getattr(tree_sitter_cpp, "LANGUAGE", None)
-		if language_object is not None:
-			return coerce_language_object(language_object, language_class)
-	except Exception:
-		return None
-
-	return None
-
-
-def coerce_language_object(language_object: Any, language_class: Any) -> Any:
-	"""Convert PyCapsules returned by language packages into Language objects."""
-
-	if language_object is None:
-		return None
-
-	if language_class is None:
-		return language_object
-
-	if isinstance(language_object, language_class):
-		return language_object
-
-	try:
-		return language_class(language_object)
-	except TypeError:
-		return language_object
-
-
-def assign_language(parser: Any, language: Any) -> None:
-	try:
-		parser.language = language
-		return
-	except AttributeError:
-		pass
-
-	if hasattr(parser, "set_language"):
-		parser.set_language(language)
-		return
-
-	raise RuntimeError("Unsupported Tree-sitter parser implementation.")
