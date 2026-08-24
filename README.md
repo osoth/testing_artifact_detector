@@ -75,6 +75,16 @@ so the same one-shot vs. clone-then-analyse workflow applies. If repositories we
 already cloned into `bar/` by a prior `testing-artifact-detector` run, that same
 clone directory can be reused directly - no need to clone twice.
 
+Beyond what the regex-based tool can express, it also resolves CMake wrapper
+macros: a `macro(...)`/`function(...)` defined anywhere in the repository whose body
+calls `add_test`/`gtest_discover_tests` is followed transitively, so calling such a
+wrapper counts as registering a test. Because this requires telling a definition
+apart from a call site, it is reported in its own columns
+(`cmake_tests_via_wrapper`, `cmake_test_wrappers`, `cmake_unused_test_wrappers`)
+rather than folded into `cmake_tests_found`. Wrappers defined outside the repository
+(e.g. `dune_add_test` from dune-common) cannot be resolved without the build
+environment, which is out of scope for this tool.
+
 Further details and options are given by
 
 > testing-artifact-detector-ts --help
@@ -99,6 +109,16 @@ The same script can also be called directly, without installing the package:
 `--diff-out` is optional; when given, every disagreeing or missing-data row is
 written to that CSV for manual review. See `CHANGELOG.md` for a worked example and
 the resulting numbers over the full JOSS dataset.
+
+That script answers "does the AST parse better than the regex, given the same
+heuristics?". To instead ask "how much more does the AST-based tool find in total?",
+use the deep comparison, which compares the baseline against everything the detector
+knows - reachability-aware CMake analysis including wrapper resolution (level 1), and
+additionally the C++ source-level scan (level 2):
+
+> testing-artifact-detector-compare-deep --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences_deep.csv
+
+Both scripts share their comparison machinery via `comparison.py`.
 
 # Project Structure:
 

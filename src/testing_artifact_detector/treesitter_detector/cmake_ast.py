@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from tree_sitter import Language, Node, QueryCursor
 
-from .cmake_results import CMAKE_CONTROL_KEYWORDS, CMakeFileAnalysis
+from .cmake_results import CMAKE_CONTROL_KEYWORDS, CMakeFileAnalysis, MacroDefinition
 from .common import Command
 from .tree_sitter_backend import cached_query, line_number, node_text
 
@@ -20,6 +20,16 @@ _COMMAND_QUERY_SOURCE = """
 (normal_command
   (identifier) @command.name
   (argument_list (argument)* @command.arg)?)
+"""
+
+# macro(name arg...) ... endmacro() and function(name arg...) ... endfunction().
+# The signature's argument_list is captured as a whole rather than per argument:
+# only its FIRST argument is the wrapper's name, the rest are its parameters.
+_DEFINITION_QUERY_SOURCE = """
+[
+  (macro_def    (macro_command    (argument_list) @definition.signature) (body) @definition.body)
+  (function_def (function_command (argument_list) @definition.signature) (body) @definition.body)
+]
 """
 
 
@@ -50,6 +60,86 @@ def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -
         )
 
     return commands
+
+
+def extract_definitions(
+    root_node: Node,
+    source_bytes: bytes,
+    language: Language,
+    file_path: str,
+) -> list[MacroDefinition]:
+    """
+    Extract every ``macro``/``function`` definition from a CMake parse tree.
+
+    For each definition the commands invoked inside its body are collected, so a
+    caller can decide whether invoking the definition registers a test - something
+    a purely lexical scan cannot determine, because it cannot tell a definition
+    from a call site.
+    """
+
+    cursor = QueryCursor(cached_query(language, _DEFINITION_QUERY_SOURCE))
+
+    definitions: list[MacroDefinition] = []
+    for _, captures in cursor.matches(root_node):
+        signature_nodes = captures.get("definition.signature", [])
+        body_nodes = captures.get("definition.body", [])
+        if not signature_nodes or not body_nodes:
+            continue
+
+        signature = signature_nodes[0]
+        if not signature.named_children:
+            continue
+
+        # The first argument is the name; every further argument is a parameter.
+        name_node = signature.named_children[0]
+        body = body_nodes[0]
+
+        definitions.append(
+            MacroDefinition(
+                name=node_text(name_node, source_bytes),
+                file_path=file_path,
+                line=line_number(name_node),
+                called_commands=sorted({
+                    command.name.lower()
+                    for command in extract_commands(body, source_bytes, language)
+                }),
+                body_span=(body.start_byte, body.end_byte),
+            )
+        )
+
+    return definitions
+
+
+def extract_top_level_command_names(
+    root_node: Node,
+    source_bytes: bytes,
+    language: Language,
+    definitions: list[MacroDefinition],
+) -> set[str]:
+    """
+    Return the (lower-cased) names of commands invoked *outside* any macro/function body.
+
+    These are the entry points of a CMake file: everything else only runs if the
+    definition containing it is actually called. Being able to draw that
+    distinction at all is what separates this from a flat textual scan.
+    """
+
+    body_spans = [definition.body_span for definition in definitions]
+    cursor = QueryCursor(cached_query(language, _COMMAND_QUERY_SOURCE))
+
+    names: set[str] = set()
+    for _, captures in cursor.matches(root_node):
+        name_nodes = captures.get("command.name", [])
+        if not name_nodes:
+            continue
+
+        name_node = name_nodes[0]
+        if any(start <= name_node.start_byte < end for start, end in body_spans):
+            continue
+
+        names.add(node_text(name_node, source_bytes).lower())
+
+    return names
 
 
 def update_framework_flags(analysis: CMakeFileAnalysis, arguments: list[str]) -> None:

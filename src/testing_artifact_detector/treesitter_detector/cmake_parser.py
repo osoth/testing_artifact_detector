@@ -9,7 +9,13 @@ from typing import Iterable
 
 from tree_sitter import Parser
 
-from .cmake_ast import extract_commands, extract_project_languages, update_framework_flags
+from .cmake_ast import (
+    extract_commands,
+    extract_definitions,
+    extract_project_languages,
+    extract_top_level_command_names,
+    update_framework_flags,
+)
 from .cmake_results import (
     CMakeFileAnalysis,
     CMakeRepositoryAnalysis,
@@ -76,11 +82,79 @@ def parse_cmake_file(file_path: str | Path, parser: Parser | None = None) -> CMa
         if command_name in PROJECT_KEYWORDS:
             analysis.languages.extend(extract_project_languages(command.arguments))
 
+    analysis.definitions = extract_definitions(
+        tree.root_node, source_bytes, parser.language, str(path)
+    )
+    analysis.top_level_commands = sorted(
+        extract_top_level_command_names(
+            tree.root_node, source_bytes, parser.language, analysis.definitions
+        )
+    )
+
     analysis.languages = unique_sorted(analysis.languages)
     analysis.commands_found = sorted(
         analysis.commands_found, key=lambda item: (item.line or -1, item.name)
     )
     return analysis
+
+
+def resolve_test_wrappers(
+    analyses: list[CMakeFileAnalysis],
+) -> tuple[list[str], list[str]]:
+    """
+    Resolve which repo-defined macros/functions register tests, and which of them
+    are actually reachable.
+
+    Wrapper names are resolved repository-wide rather than per file, because CMake
+    projects typically define helpers in ``cmake/*.cmake`` and call them from
+    subdirectory ``CMakeLists.txt`` files. ``source_collector`` already yields every
+    CMake file, so no ``include()`` resolution is needed for in-repo modules.
+
+    This deliberately ignores CMake's evaluation order (``include()`` /
+    ``add_subdirectory()``): a definition counts even if its file is never
+    included. For detecting test artifacts that is the conservative direction.
+
+    :return: ``(reachable test wrappers, test wrappers that are never reached)``.
+    """
+
+    # name -> commands its body calls (a name may be defined more than once)
+    bodies: dict[str, set[str]] = {}
+    for analysis in analyses:
+        for definition in analysis.definitions:
+            bodies.setdefault(definition.name.lower(), set()).update(definition.called_commands)
+
+    # Fixpoint 1: a wrapper registers tests if its body calls a test command
+    # directly, or calls another wrapper that does. Iterating to a fixpoint makes
+    # recursive and mutually recursive definitions terminate safely.
+    registers_tests = {name for name, called in bodies.items() if called & TEST_COMMANDS}
+    while True:
+        grown = {
+            name
+            for name, called in bodies.items()
+            if name not in registers_tests and called & registers_tests
+        }
+        if not grown:
+            break
+        registers_tests |= grown
+
+    # Fixpoint 2: reachability. Commands invoked outside any definition body are
+    # the entry points; from there, calling a wrapper makes its body reachable too.
+    reachable = {name for analysis in analyses for name in analysis.top_level_commands}
+    while True:
+        grown = {
+            called
+            for name in reachable & bodies.keys()
+            for called in bodies[name]
+            if called not in reachable
+        }
+        if not grown:
+            break
+        reachable |= grown
+
+    return (
+        sorted(registers_tests & reachable),
+        sorted(registers_tests - reachable),
+    )
 
 
 def analyse_cmake_repository(
@@ -107,6 +181,13 @@ def analyse_cmake_repository(
     result.uses_gtest = any(analysis.uses_gtest for analysis in analyses)
     result.uses_catch2 = any(analysis.uses_catch2 for analysis in analyses)
     result.enable_testing = any(analysis.enable_testing for analysis in analyses)
+    result.test_wrappers, result.unused_test_wrappers = resolve_test_wrappers(analyses)
+    result.tests_via_wrapper = bool(result.test_wrappers)
+    result.tests_found_reachable = result.tests_via_wrapper or any(
+        name in TEST_COMMANDS
+        for analysis in analyses
+        for name in analysis.top_level_commands
+    )
     result.languages = unique_sorted(
         language
         for analysis in analyses

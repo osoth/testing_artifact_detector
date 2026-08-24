@@ -47,6 +47,10 @@ def handle_cpp_and_cmake(row, clone_path):
     row["cmake_uses_gtest"] = cmake_analysis.uses_gtest
     row["cmake_uses_catch2"] = cmake_analysis.uses_catch2
     row["cmake_enable_testing"] = cmake_analysis.enable_testing
+    row["cmake_tests_reachable"] = cmake_analysis.tests_found_reachable
+    row["cmake_tests_via_wrapper"] = cmake_analysis.tests_via_wrapper
+    row["cmake_test_wrappers"] = cmake_analysis.test_wrappers
+    row["cmake_unused_test_wrappers"] = cmake_analysis.unused_test_wrappers
     row["cmake_languages"] = cmake_analysis.languages
 
     row["has_cpp_tests"] = cpp_analysis.tests_found
@@ -170,6 +174,8 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
                                    "has_cmakelists", "cmake_tests_found",
                                    "cmake_gtests_found", "cmake_uses_gtest",
                                    "cmake_uses_catch2", "cmake_enable_testing",
+                                   "cmake_tests_reachable", "cmake_tests_via_wrapper",
+                                   "cmake_test_wrappers", "cmake_unused_test_wrappers",
                                    "cmake_languages"]
 
                 out_fieldnames += ["has_cpp_tests", "cpp_gtests_found",

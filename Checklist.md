@@ -20,8 +20,15 @@ Ergänzt `REQUIREMENT.MD` (Status-Tracker) um konkrete, abhakbare Arbeitsschritt
 
 ## 2. F02 — Strukturelle Suche (Must)
 
-- [x] CMake-Kommandos strukturell extrahiert (`cmake_ast.py::iter_command_nodes`, `extract_command`)
+- [x] CMake-Kommandos strukturell extrahiert (`cmake_ast.py::extract_commands`, Query-API)
 - [x] C++ Test-Makros/Includes strukturell erkannt (`cpp_ast.py`, `cpp_results.py`: GTest/Catch2/generische Makros)
+- [x] Wrapper-Auflösung: `macro`/`function`-Definitionen werden erkannt, ihre Rümpfe auf
+  `add_test`/`gtest_discover_tests` geprüft und Aufrufe transitiv als Testregistrierung gewertet
+  (`cmake_ast.py::extract_definitions`, `cmake_parser.py::resolve_test_wrappers`) — für die Regex
+  prinzipiell unerreichbar, siehe CHANGELOG §8
+- [ ] Extern definierte Wrapper (`dune_add_test` aus dune-common, `ExternalData_add_test` aus CMake)
+  bleiben unauflösbar, solange die Build-Umgebung nicht vorliegt — bewusste Abgrenzung nach §3.5,
+  betrifft Repos 153 und 3959 als dokumentierte False Negatives
 - [ ] Abgleich der SWORDS-Heuristiken (§3.4 „bereits im SWORDS-Projekt etablierte textbasierte Heuristiken“):
   vorhandene Regex-Detektoren in `src/testing_artifact_detector/detectors/` systematisch durchgehen und für
   jede Heuristik dokumentieren, ob/wie sie als AST-Knotenmuster in `cpp_ast.py`/`cmake_ast.py` reproduziert ist
@@ -30,7 +37,7 @@ Ergänzt `REQUIREMENT.MD` (Status-Tracker) um konkrete, abhakbare Arbeitsschritt
   JOSS-Datensatz auf zusätzliche strukturelle Muster, die über reine Textmuster hinausgehen (z. B. Test-Traits
   über Templates, benutzerdefinierte Assertion-Makros) — Ergebnisse als neue Knotentyp-Regeln einpflegen
 - [ ] Boost.Test / CppUnit / doctest-Makros vervollständigen (aktuell nur teilweise in `GENERIC_TEST_MACROS`
-  in `cpp_results.py`, z. B. `assert` ist kein Test-Framework-Makro und sollte geprüft/entfernt werden)
+  in `cpp_results.py`; `assert` wurde bereits entfernt, siehe CHANGELOG §3)
 
 ## 3. F03 — Cross-Language-Mapping (Must) — größte offene Lücke
 

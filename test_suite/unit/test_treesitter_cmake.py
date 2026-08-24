@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from src.testing_artifact_detector.treesitter_detector import cmake_parser as cmake_parser_module
-from src.testing_artifact_detector.treesitter_detector.cmake_results import CMakeFileAnalysis
+from src.testing_artifact_detector.treesitter_detector.cmake_results import (
+    CMakeFileAnalysis,
+    CMakeRepositoryAnalysis,
+)
+from src.testing_artifact_detector.treesitter_detector.source_collector import collect_sources
 
 
 def analyse(tmp_path, source: str, parser, filename: str = "CMakeLists.txt") -> CMakeFileAnalysis:
@@ -12,6 +16,18 @@ def analyse(tmp_path, source: str, parser, filename: str = "CMakeLists.txt") -> 
     file_path = tmp_path / filename
     file_path.write_text(source)
     return cmake_parser_module.parse_cmake_file(file_path, parser=parser)
+
+
+def analyse_repo(tmp_path, files: dict[str, str], parser) -> CMakeRepositoryAnalysis:
+    """Write a set of ``relative path -> content`` files and analyse them as one repository."""
+
+    for name, content in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    return cmake_parser_module.analyse_cmake_repository(
+        collect_sources(tmp_path).cmake_files, parser=parser
+    )
 
 
 def test_parse_cmake_file_uses_ast_helpers(tmp_path, cmake_parser):
@@ -108,6 +124,171 @@ def test_parse_cmake_file_records_error_for_missing_file(tmp_path, cmake_parser)
 
     assert analysis.parsed is False
     assert analysis.parse_errors == ["File does not exist or is not a regular file."]
+
+
+# --- wrapper resolution -----------------------------------------------------
+# Resolving a macro/function definition and following its call transitively is
+# something a line-based regex cannot express; these cover that capability.
+
+
+def test_wrapper_that_registers_a_test_and_is_called_is_resolved(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(my_add_test t)\n"
+            "  add_test(NAME ${t} COMMAND ${t})\n"
+            "endmacro()\n"
+            "my_add_test(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is True
+    assert result.test_wrappers == ["my_add_test"]
+    assert result.unused_test_wrappers == []
+
+
+def test_wrapper_that_is_never_called_is_reported_as_unused(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(my_add_test t)\n"
+            "  add_test(NAME ${t} COMMAND ${t})\n"
+            "endmacro()\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is False
+    assert result.test_wrappers == []
+    assert result.unused_test_wrappers == ["my_add_test"]
+    # The flat, baseline-parity scan cannot make this distinction and still
+    # reports a test, because add_test appears textually.
+    assert result.tests_found is True
+
+
+def test_wrapper_chain_is_resolved_transitively(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(inner t)\n"
+            "  add_test(NAME ${t} COMMAND ${t})\n"
+            "endmacro()\n"
+            "function(outer t)\n"
+            "  inner(${t})\n"
+            "endfunction()\n"
+            "outer(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is True
+    assert result.test_wrappers == ["inner", "outer"]
+
+
+def test_wrapper_parameters_are_not_mistaken_for_wrapper_names(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(my_add_test testname extra)\n"
+            "  add_test(NAME ${testname} COMMAND x)\n"
+            "endmacro()\n"
+            "my_add_test(a b)\n",
+    }, cmake_parser)
+
+    assert result.test_wrappers == ["my_add_test"]
+
+
+def test_wrapper_defined_in_another_cmake_file_is_resolved(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "cmake/Helpers.cmake":
+            "function(helper_add_test t)\n"
+            "  gtest_discover_tests(${t})\n"
+            "endfunction()\n",
+        "CMakeLists.txt":
+            "include(cmake/Helpers.cmake)\n"
+            "helper_add_test(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is True
+    assert result.test_wrappers == ["helper_add_test"]
+
+
+def test_wrapper_resolution_is_case_insensitive(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(MY_ADD_TEST t)\n"
+            "  ADD_TEST(NAME ${t} COMMAND x)\n"
+            "endmacro()\n"
+            "my_add_test(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is True
+    assert result.test_wrappers == ["my_add_test"]
+
+
+def test_mutually_recursive_wrappers_terminate(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(a t)\n"
+            "  b(${t})\n"
+            "endmacro()\n"
+            "macro(b t)\n"
+            "  a(${t})\n"
+            "  add_test(NAME ${t} COMMAND x)\n"
+            "endmacro()\n"
+            "a(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_via_wrapper is True
+    assert result.test_wrappers == ["a", "b"]
+
+
+def test_repository_without_wrappers_reports_none(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt": "add_test(NAME plain COMMAND demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_found is True
+    assert result.tests_via_wrapper is False
+    assert result.test_wrappers == []
+    assert result.unused_test_wrappers == []
+
+
+def test_tests_found_reachable_ignores_registration_in_uninvoked_macro(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(my_add_test t)\n"
+            "  add_test(NAME ${t} COMMAND ${t})\n"
+            "endmacro()\n",
+    }, cmake_parser)
+
+    # The flat, baseline-parity verdict counts the add_test in the body...
+    assert result.tests_found is True
+    # ...while the reachability-aware verdict does not, because nothing calls it.
+    assert result.tests_found_reachable is False
+
+
+def test_tests_found_reachable_counts_top_level_registration(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt": "add_test(NAME plain COMMAND demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_found_reachable is True
+
+
+def test_tests_found_reachable_counts_registration_inside_if_block(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "if(BUILD_TESTING)\n"
+            "  add_test(NAME conditional COMMAND demo)\n"
+            "endif()\n",
+    }, cmake_parser)
+
+    # An if()/foreach() body is ordinary reachable code, unlike a macro body.
+    assert result.tests_found_reachable is True
+
+
+def test_tests_found_reachable_counts_called_wrapper(tmp_path, cmake_parser):
+    result = analyse_repo(tmp_path, {
+        "CMakeLists.txt":
+            "macro(my_add_test t)\n"
+            "  add_test(NAME ${t} COMMAND ${t})\n"
+            "endmacro()\n"
+            "my_add_test(demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_found_reachable is True
 
 
 def test_analyse_cmake_repository_aggregates_results(monkeypatch):

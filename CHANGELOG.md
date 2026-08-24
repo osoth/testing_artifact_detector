@@ -112,15 +112,18 @@ Stichprobenprüfung der verbliebenen 20 Abweichungen ergab keine weiteren
 Implementierungsfehler mehr, sondern methodisch interessante Fälle für die
 Fallstudien in §4.4 der Konzeption:
 - Repo `7957` (`ethz-randomwalk/polytopewalk`): Baseline meldet `uses_catch2=True`,
-  obwohl `find_package(Catch2 REQUIRED)` **auskommentiert** ist
-  (`#find_package(...)`) — echter Baseline-False-Positive, Tree-sitter korrekt.
+  obwohl `find_package(Catch2 REQUIRED)` **auskommentiert** ist. Das Projekt nutzt
+  Catch2 aber tatsächlich (FetchContent + `Catch2::Catch2WithMain`) — die Baseline
+  hat also recht, jedoch über einen unsoliden Mechanismus (sie matcht in
+  auskommentiertem Code). Siehe die korrigierte Bewertung in Abschnitt 6.
 - Repo `3959` (`samuelburbulla/dune-mmesh`): Baseline meldet `tests_found=True`
-  über das eigene Wrapper-Makro `dune_add_test(...)`, das per Substring-Match auf
+  über das Wrapper-Makro `dune_add_test(...)`, das per Substring-Match auf
   `"add_test"` matcht — richtiges Ergebnis aus falschem Grund. Tree-sitter matcht
   exakt auf den Kommandonamen und verpasst daher Wrapper-Makros.
 - Repo `558` (`barbagroup/PetIBM`) u. a. (6 Fälle bei `uses_gtest`): moderne
   `FetchContent`+`gtest_discover_tests`-Setups ganz ohne `find_package(GTest)` —
-  Baseline kann das strukturell nicht erfassen, Tree-sitter korrekt.
+  Baseline kann das strukturell nicht erfassen, Tree-sitter korrekt. Diese
+  Erkennung wurde in Abschnitt 6 (Angleichung A) bewusst wieder zurückgenommen.
 
 ## 6. Heuristiken exakt an Baseline angeglichen
 
@@ -166,21 +169,44 @@ Seite). `has_cmake_file` und `gtests_found` jetzt beide bei **0 Abweichungen**.
 | tests_found | 76✓ / 125✗ | 2 |
 | gtests_found | 11✓ / 192✗ | 0 |
 
-Die 4 verbleibenden Abweichungen bestätigen — nach Angleichung aller
-Heuristiken — ausschließlich die schon in Schritt 5 identifizierten
-Parsing-Technologie-Grenzen der Baseline, jetzt mit zwei zusätzlichen
-Beispielen pro Kategorie:
-- **Kommentierter Code wird von der Baseline mitgezählt:** Repo `7957`
-  (`uses_catch2`, `#find_package(Catch2 REQUIRED)`) und neu Repo `3061`
-  (`tumcms/Open-Infra-Platform`, `uses_gtest`, `#find_package(GTest REQUIRED)`).
-- **Substring-Match auf Wrapper-Makros ist "richtig aus falschem Grund":**
-  Repo `3959` (`dune_add_test(...)`) und neu Repo `153`
-  (`KitwareMedical/SlicerITKUltrasound`, `ExternalData_add_test(...)`).
+### Bewertung der 4 verbleibenden Abweichungen
 
-Damit ist der CMake-vs-CMake-Vergleich jetzt ein reiner Parsing-Technologie-Vergleich:
-jede verbleibende Abweichung lässt sich auf eine der drei in Schritt 5 genannten
-lexikalischen Grenzen der Baseline zurückführen, nicht mehr auf unterschiedliche
-Prüfbedingungen zwischen den beiden Tools.
+Alle vier lauten Baseline=`True`, Tree-sitter=`False`. Eine Prüfung der jeweiligen
+Repos gegen die tatsächliche Ground Truth ergibt in **allen vier Fällen**, dass das
+gesuchte Artefakt real vorhanden ist:
+
+| project_id | Repo | Indikator | Ground Truth | Baseline | Tree-sitter |
+|---|---|---|---|---|---|
+| 3061 | tumcms/Open-Infra-Platform | uses_gtest | GTest wird genutzt: `gtest_discover_tests`, `target_link_libraries(... gtest gtest_main)` | TP | **FN** |
+| 7957 | ethz-randomwalk/polytopewalk | uses_catch2 | Catch2 wird genutzt: FetchContent, `Catch2::Catch2WithMain`, `#include <catch2/catch_test_macros.hpp>` | TP | **FN** |
+| 153 | KitwareMedical/SlicerITKUltrasound | tests_found | Tests existieren: `ExternalData_add_test(...)` registriert CTest-Tests | TP | **FN** |
+| 3959 | samuelburbulla/dune-mmesh | tests_found | Tests existieren: `dune_add_test(...)` plus `test-*.cc` | TP | **FN** |
+
+Damit gilt für den streng heuristik-angeglichenen CMake-Vergleich: **4 False
+Negatives auf Tree-sitter-Seite, 0 auf Baseline-Seite.** Der AST-Ansatz gewinnt hier
+keinen einzigen Fall.
+
+Diese Bewertung korrigiert eine frühere Fehleinschätzung in Abschnitt 5, die 7957 und
+3061 als Baseline-False-Positives geführt hatte. Dort war nur geprüft worden, ob die
+`find_package`-Zeile auskommentiert ist — nicht, ob das Projekt das Framework
+anderweitig nutzt. Es tut es.
+
+Einzuordnen ist das Ergebnis so:
+- Die Baseline hat in allen vier Fällen **das richtige Ergebnis aus einem unsoliden
+  Grund**: Sie matcht in auskommentiertem Code (3061, 7957) bzw. per Substring auf
+  Wrapper-Makronamen (153, 3959). Beides würde in anderen Repos False Positives
+  erzeugen; in den verglichenen Spalten dieses Datensatzes ist das nicht eingetreten.
+- Zwei der vier Tree-sitter-FNs sind **selbst verursacht**: 3061 und 7957 gehen auf
+  Angleichung A zurück. Repo 3061 hat `cmake_gtests_found=True` — vor der Angleichung
+  hätte Tree-sitter korrekt geantwortet. Die C++-Ebene des Tools erkennt beide
+  ohnehin (`cpp_uses_gtest`/`cpp_uses_catch2`), fließt aber per Definition nicht in
+  den fairen Vergleich ein.
+- 153 und 3959 sind eine **echte, verbleibende Grenze**: Wrapper-Makros werden nicht
+  aufgelöst, und die C++-Ebene hilft nicht (`has_cpp_tests=False` bei beiden).
+
+Der eigentliche Vorteil des AST-Ansatzes zeigt sich damit nicht in diesem Vergleich,
+sondern in der C++-Ebene: 43 Repos mit echten Test-Makros, die die Baseline
+strukturell gar nicht sehen kann.
 
 ## 7. Refactoring des Tree-sitter-Teils (ohne Logikänderung)
 
@@ -227,12 +253,144 @@ ein `analyse()`-Helfer pro Modul. Die zwei reinen Facade-Tests entfielen mit der
 Facade, dafür zwei neue Tests für den Fehlerpfad bei fehlender Datei. 32 Tests grün.
 
 **Sonstiges:** `comp_rgx_ts.py` hat einen Konsolen-Entrypoint bekommen
-(`testing-artifact-detector-compare`); Einrückung im gesamten Paket auf 4 Spaces
-vereinheitlicht (vorher Tabs, im Widerspruch zum Rest des Projekts).
+(`testing-artifact-detector-compare`); Einrückung im Paket auf 4 Spaces
+vereinheitlicht (vorher Tabs, im Widerspruch zum Rest des Projekts). Nachtrag:
+`comp_rgx_ts.py` wurde dabei übersehen und erst in Abschnitt 8 nachgezogen.
 
 Bewusst nicht angefasst: `cli2.py`/`cli.py` teilen sich ~110 duplizierte Zeilen
 Orchestrierung; deduplizieren ginge nur durch Änderungen an `cli.py`, das als
 Vergleichsbaseline stabil bleiben soll.
+
+## 8. CMake-Wrapper-Auflösung (Makro-/Funktionsdefinitionen)
+
+Zwei der vier verbliebenen Abweichungen (Repos 153, 3959) sind Wrapper-Makros:
+Die Baseline matcht `ExternalData_add_test`/`dune_add_test` per Substring auf
+`add_test`, Tree-sitter matcht exakt und produziert ein False Negative. Die
+strukturell saubere Antwort ist, Definitionen zu finden, ihre Rümpfe zu prüfen und
+Aufrufe transitiv als Testregistrierung zu werten — etwas, das eine Regex
+prinzipiell nicht kann, weil sie Definition und Aufrufstelle nicht unterscheidet.
+
+**Implementierung:** `cmake_ast.py::extract_definitions` (Query über `macro_def`/
+`function_def`) plus `cmake_parser.py::resolve_test_wrappers` mit zwei
+Fixpunkt-Iterationen — erst „registriert transitiv Tests", dann „ist von einer
+Aufrufstelle außerhalb jeder Definition erreichbar". Die Auflösung ist repo-weit;
+`include()` muss nicht ausgewertet werden, weil `source_collector` ohnehin alle
+CMake-Dateien liefert. Neue Spalten `cmake_tests_via_wrapper`,
+`cmake_test_wrappers`, `cmake_unused_test_wrappers`; **`cmake_tests_found` bleibt
+unverändert**, damit die Baseline-Parität und die 14 Abweichungen erhalten bleiben.
+
+Ein Fallstrick dabei: Die Query darf nur das **erste** Argument der Signatur als
+Namen nehmen. Nimmt man jedes Argument, tauchen Makro-*Parameter* (`testname`,
+`arg1`, `includes`) als vermeintliche Wrapper auf.
+
+**Empirischer Befund über alle 206 Repos:**
+
+| Befund | Anzahl |
+|---|---|
+| Repos mit In-Repo-Wrapper, der Tests registriert und aufgerufen wird | 33 |
+| Repos, in denen `add_test`/`gtest_discover_tests` *nur* in Rümpfen steht | 9 |
+| Repos, die dadurch von `False` auf `True` kippen | **0** |
+| Verschiedene aufgelöste Wrapper-Namen | 135 |
+| Repos mit **nie aufgerufenem** Test-Wrapper | **8** |
+
+`cmake_tests_found` ändert sich in **keiner einzigen Zeile** (spaltenweise über alle
+206 Repos verifiziert), der faire Vergleich meldet unverändert 14 Abweichungen.
+
+Der Gewinn ist damit **nicht numerisch, sondern qualitativ**: Bei jenen 9 Repos lag
+das Tool schon vorher richtig, aber aus demselben flachen Grund wie die Regex — ein
+`add_test` im Makrorumpf zählte, unabhängig davon, ob das Makro je aufgerufen wird.
+Jetzt ist das Ergebnis begründbar (welcher Wrapper, wo definiert, wo aufgerufen),
+und der Fall „Wrapper definiert, aber nie aufgerufen" ist überhaupt erst
+unterscheidbar. Das ist die strukturelle Validität aus Konzeption §4.2.
+
+**Fallstudie 7881 (`cadet/CADET-Core`) — Fallstudienmaterial für §4.4.**
+Der Vorab-Scan hatte 0 ungenutzte Wrapper erwartet, die vollständige Analyse findet
+8. Stichproben bestätigen sie als echte Funde (u. a. Repo 548: `gtest_add_tests` in
+einem mitgelieferten `cmake/FindGMock.cmake`, das nur Downstream-Nutzern dient).
+Der lehrreichste Fall ist 7881: Die **einzigen** beiden `add_test`-Vorkommen im
+gesamten Repo sind
+1. `ThirdParty/Catch/contrib/Catch.cmake:146` — innerhalb eines **String-Literals**,
+   das per `file(WRITE ...)` erst zur Build-Zeit erzeugt wird, und
+2. `ThirdParty/Catch/contrib/ParseAndAddCatchTests.cmake:168` — im Rumpf von
+   `function(ParseFile ...)`, die nur aus `ParseAndAddCatchTests` heraus gerufen
+   wird, deren einzige „Aufrufstelle" wiederum ein **Kommentar** (Zeile 27) ist.
+
+Beides ist eingebundenes Catch2-Fremdmaterial, das im Repo nie ausgeführt wird.
+Ergebnis pro Ebene:
+
+| Ebene | `Catch.cmake` (String-Literal) | Repo-Ergebnis |
+|---|---|---|
+| Regex-Baseline | `True` — matcht im String | `has_cpp_tests=True` |
+| AST, flacher Scan (Paritätsspalte) | `False` — ignoriert String korrekt | `cmake_tests_found=True` (wegen Rumpf) |
+| AST + Wrapper-Auflösung | — | `tests_via_wrapper=False`, unused=`[parseandaddcatchtests, parsefile]` |
+
+Damit ist 7881 ein belegbarer **False Positive des flachen Scans**, den erst die
+Wrapper-Auflösung sichtbar macht — und zugleich ein Fall, in dem der AST-Ansatz der
+Regex auf zwei unabhängigen Achsen überlegen ist: Immunität gegen String-Literale und
+Kommentare *und* Erreichbarkeit. Auf Repo-Ebene melden beide Ansätze `True`, weshalb
+der Fall im fairen Vergleich nicht als Abweichung auftaucht; der Mechanismus ist aber
+sauber demonstrierbar.
+
+**Bewusste Grenzen:** Wrapper, die außerhalb des Repos definiert sind
+(`dune_add_test` aus dune-common, `ExternalData_add_test` aus CMake selbst), bleiben
+unauflösbar — beide Definitionen erscheinen erst mit der Build-Umgebung. Repos 153
+und 3959 bleiben damit dokumentierte False Negatives; das entspricht der Abgrenzung
+in Konzeption §3.5 (keine Build-Umgebungs-Auflösung). Ein Katalog bekannter externer
+Wrapper-Namen wurde bewusst **nicht** eingeführt: Das wäre wieder eine
+Namensheuristik, also genau der Mechanismus, den die Arbeit der Baseline vorwirft.
+Ebenso wird die CMake-Auswertungsreihenfolge (`include()`/`add_subdirectory()`) nicht
+simuliert — eine Definition zählt auch aus einer nie eingebundenen Datei.
+
+## 9. Zweites Vergleichsskript: volle AST-Fähigkeit statt strenger Parität
+
+Der bisherige Vergleich (`comp_rgx_ts.py`) beantwortet die Frage *„parst der AST
+besser als die Regex, bei gleicher Heuristik?"*. Er sagt bewusst nichts darüber,
+wie viel das Werkzeug insgesamt findet. Dafür gibt es jetzt
+`comp_rgx_ts_deep.py` (Entrypoint `testing-artifact-detector-compare-deep`) mit
+zwei Stufen. Beide kombinieren nur Spalten, die das Werkzeug ohnehin berechnet —
+es kommt keine neue Heuristik hinzu.
+
+Dazu nötig war eine neue Spalte `cmake_tests_reachable`: der erreichbarkeitsbewusste
+Befund (Testkommando außerhalb jeder Definition **oder** tatsächlich aufgerufener
+Wrapper). Aus den bisherigen Spalten war er nicht rekonstruierbar — bei Repos mit
+unerreichbarem Wrapper ließ sich nicht unterscheiden, ob woanders noch ein
+Top-Level-`add_test` steht (Unterschied zwischen Repo 548 und 7881).
+`cmake_tests_found` bleibt erneut in allen 206 Zeilen unverändert.
+
+| | Zeilen gesamt | echte Abweichungen | nur Baseline | nur Tree-sitter |
+|---|---|---|---|---|
+| Streng (Parität) | 14 | 4 | 4 | **0** |
+| Level 1: Deep CMake | 20 | 10 | 4 | **6** |
+| Level 2: Deep CMake + C++ | 161 | 151 | **2** | **149** |
+
+(Jeweils zusätzlich 10 Zeilen „eine Seite hat keine Daten", zwei Repos × fünf Indikatoren.)
+
+**Level 1** nutzt dieselben Dateien wie die Baseline, aber `cmake_tests_reachable`
+statt des flachen Scans, und akzeptiert `gtest_discover_tests` als GTest-Beleg
+(Angleichung A aus Abschnitt 6, hier bewusst wieder aktiviert). Ergebnis:
+- **6 neue Treffer für Tree-sitter** bei `uses_gtest` (Repos 558, 4281, 5202, 6339,
+  6548, 7478) — moderne FetchContent-Setups ohne `find_package(GTest)`, die die
+  Baseline strukturell nicht sehen kann.
+- Repo **3061** verschwindet als Abweichung: über `gtest_discover_tests` stimmen
+  jetzt beide Seiten überein.
+- Repo **7881** kommt als Abweichung hinzu — und zwar als **erster nachgewiesener
+  False Positive der Baseline**: Tree-sitter sagt korrekt `False`, weil keine
+  Registrierung erreichbar ist (siehe Fallstudie in Abschnitt 8).
+- Verbleibende echte Tree-sitter-False-Negatives: **153** und **3959** (extern
+  definierte Wrapper) sowie **7957** (Catch2 via FetchContent, nicht aufgelöst).
+
+**Level 2** ergänzt die C++-Quellcode-Ebene: 40 zusätzliche `uses_gtest`-,
+27 `uses_catch2`-, 39 `gtests_found`- und 43 `tests_found`-Treffer. Übrig bleiben
+nur noch **2** Fälle, die die Baseline findet und Tree-sitter nicht — die beiden
+extern definierten Wrapper 153 und 3959.
+
+Damit lässt sich die Aussage der Arbeit sauber schichten: Bei erzwungener
+Heuristik-Gleichheit gewinnt der AST-Ansatz nichts (0 Treffer, 4 FN); sobald er
+seine strukturellen Fähigkeiten nutzen darf, dreht sich das Bild auf 149 zu 2.
+
+**Nebenbei:** Die Vergleichsmechanik ist in `comparison.py` ausgelagert, damit das
+zweite Skript sie nicht dupliziert; `comp_rgx_ts.py` nutzt sie ebenfalls und meldet
+unverändert 14 Abweichungen.
 
 ## Offene Punkte
 
