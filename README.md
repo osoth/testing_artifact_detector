@@ -60,6 +60,46 @@ A sample configuration, i.e. the exclusions used for the eScience 2026 submissio
 in the root folder. If no configuration is given, default exclusions are set and printed to the
 command line.
 
+# Tree-sitter version (AST-based analysis)
+
+An alternative, Tree-sitter/AST-based analysis path for C++ and CMake test-artifact
+detection is available via `testing-artifact-detector-ts` (implemented in `cli2.py`,
+using the modules under `src/testing_artifact_detector/treesitter_detector/`). It
+takes the same kind of input/output as the regex-based tool above:
+
+> testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/
+
+It supports the same `--clone-dir`, `--assume-cloned`, `--clone-only`, and
+`--cloc-config` options as `testing-artifact-detector` (see "Advanced use" above),
+so the same one-shot vs. clone-then-analyse workflow applies. If repositories were
+already cloned into `bar/` by a prior `testing-artifact-detector` run, that same
+clone directory can be reused directly - no need to clone twice.
+
+Further details and options are given by
+
+> testing-artifact-detector-ts --help
+
+# Comparing the regex and Tree-sitter results
+
+`comp_rgx_ts.py` (in `src/testing_artifact_detector/treesitter_detector/`) compares
+the CSV outputs of the two tools above and reports, per test-artifact indicator,
+where they agree or disagree. It only compares the fields both tools derive the
+same way (CMake-file-based signals: `find_package`, `add_test`,
+`gtest_discover_tests`); the Tree-sitter tool's additional C++ source-level fields
+have no regex-tool equivalent and are reported separately, for information only.
+
+Run it after producing both output CSVs:
+
+> testing-artifact-detector-compare --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+
+The same script can also be called directly, without installing the package:
+
+> python src/testing_artifact_detector/treesitter_detector/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+
+`--diff-out` is optional; when given, every disagreeing or missing-data row is
+written to that CSV for manual review. See `CHANGELOG.md` for a worked example and
+the resulting numbers over the full JOSS dataset.
+
 # Project Structure:
 
 ```

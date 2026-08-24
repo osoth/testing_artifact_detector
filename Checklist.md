@@ -74,7 +74,7 @@ noch keine explizite Verknüpfung zwischen `add_test`/`gtest_discover_tests`-Tar
 ### 5.2 Modularität
 - [ ] Gemeinsame Parser-Infrastruktur (`tree_sitter_backend.py`) so verallgemeinern, dass eine neue Sprache
   ausschließlich durch (a) Grammatik-Registrierung, (b) neue `*_ast.py`-Query-Datei, (c) neues
-  `*_results.py`-Datenmodell hinzugefügt werden kann, ohne `detector.py`/`cli2.py` inhaltlich anzufassen
+  `*_results.py`-Datenmodell hinzugefügt werden kann, ohne `*_parser.py`/`cli2.py` inhaltlich anzufassen
 - [ ] Diese Erweiterbarkeit als konkreten Schnittstellenvertrag dokumentieren (z. B. Protocol/ABC für
   „Language Analyzer"), da §5.4 (Evaluierung der Erweiterbarkeit) genau diesen Aufwand als Machbarkeitsnachweis
   braucht
@@ -143,8 +143,10 @@ Kern-Framework hinausgehen:
 
 ## 9. Testabdeckung des eigenen Tools
 
-- [ ] `test_suite/unit/test_treesitter_detector.py` erweitern: aktuell existiert die Datei, Abdeckung für
-  `cmake_ast.py`, `cpp_ast.py`, `source_collector.py` und das neue Cross-Language-Mapping (Abschnitt 3)
-  gegenprüfen und Lücken schließen
+- [ ] `test_suite/unit/test_treesitter_cmake.py` / `test_treesitter_cpp.py` erweitern: Abdeckung für
+  `cmake_ast.py`, `cpp_ast.py` und das neue Cross-Language-Mapping (Abschnitt 3) gegenprüfen und
+  Lücken schließen
+- [ ] Für `source_collector.py` (Dateierfassung) und `tree_sitter_backend.py` (Parserbau, Query-Cache)
+  existieren bislang **gar keine** Tests — beide sind zentral für jedes Analyseergebnis
 - [ ] Regressionstests mit den synthetischen Mini-Repos aus Abschnitt 3 dauerhaft im Repository ablegen
   (`test_suite/unit/test_data/...`), analog zum bestehenden Python-Test-Datenmuster

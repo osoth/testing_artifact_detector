@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 import re
 import traceback
 from datetime import datetime
@@ -81,8 +80,6 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
     results = []
     projects_per_lang: dict[str, int] = {}
     projects_with_dominant_lang: dict[str, int] = {}
-    cloned_repos = 0
-    existing_repos = 0
     processed_repos = 0
     reader = None
 
@@ -110,13 +107,10 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
 
                     if clone_result is not None:
                         if clone_result[0]:
-                            cloned_repos += 1
                             row["clone_date"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
                             if assume_cloned:
                                 print(f"[WARN] Repo {project_id} with URL {repo_url} was cloned"
                                       f" but should have existed!")
-                        else:
-                            existing_repos += 1
                     else:
                         print(f"Failed to clone repo number {processed_repos} with"
                               f" {project_id} and URL {repo_url}.")

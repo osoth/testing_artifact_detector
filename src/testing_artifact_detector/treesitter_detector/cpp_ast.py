@@ -17,11 +17,18 @@ Two structural shapes matter for test-macro detection:
 
 from __future__ import annotations
 
-from typing import Any
+from tree_sitter import Language, Node, QueryCursor
 
-from tree_sitter import Query, QueryCursor
-
-from .cpp_results import CATCH2_INCLUDE_NAMES, CATCH2_TEST_MACROS, CppCommand, CppFileAnalysis, GTEST_INCLUDE_NAMES, GTEST_TEST_MACROS, GENERIC_TEST_MACROS
+from .common import Command
+from .cpp_results import (
+    CATCH2_INCLUDE_NAMES,
+    CATCH2_TEST_MACROS,
+    CppFileAnalysis,
+    GENERIC_TEST_MACROS,
+    GTEST_INCLUDE_NAMES,
+    GTEST_TEST_MACROS,
+)
+from .tree_sitter_backend import cached_query, line_number, node_text
 
 _COMMAND_QUERY_SOURCE = """
 [
@@ -38,110 +45,92 @@ _COMMAND_QUERY_SOURCE = """
 ]
 """
 
-_query_cache: dict[int, Query] = {}
+
+def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -> list[Command]:
+    """Extract every include directive and macro/function invocation from a C++ parse tree."""
+
+    cursor = QueryCursor(cached_query(language, _COMMAND_QUERY_SOURCE))
+
+    commands: list[Command] = []
+    for _, captures in cursor.matches(root_node):
+        include_path_nodes = captures.get("include.path")
+        if include_path_nodes:
+            include_target = extract_include_target(include_path_nodes[0], source_bytes)
+            if include_target:
+                commands.append(
+                    Command(
+                        name="include",
+                        arguments=[include_target],
+                        line=line_number(include_path_nodes[0]),
+                    )
+                )
+            continue
+
+        name_nodes = captures.get("macro.name")
+        if not name_nodes:
+            continue
+
+        name_node = name_nodes[0]
+        args_nodes = captures.get("macro.args")
+        arguments = (
+            [node_text(child, source_bytes) for child in args_nodes[0].named_children]
+            if args_nodes
+            else []
+        )
+        commands.append(
+            Command(
+                name=node_text(name_node, source_bytes),
+                arguments=arguments,
+                line=line_number(name_node),
+            )
+        )
+
+    return commands
 
 
-def _command_query(language: Any) -> Query:
-	"""Build (and cache) the query used to find includes and macro/call invocations."""
+def update_cpp_flags(analysis: CppFileAnalysis, command: Command) -> None:
+    """Update a file analysis with one extracted C++ command."""
 
-	cache_key = id(language)
-	query = _query_cache.get(cache_key)
-	if query is None:
-		query = Query(language, _COMMAND_QUERY_SOURCE)
-		_query_cache[cache_key] = query
-	return query
+    if command.name == "include" and command.arguments:
+        include_target = command.arguments[0].lower()
+        if include_target in GTEST_INCLUDE_NAMES or "gtest" in include_target:
+            analysis.includes_gtest = True
+            analysis.uses_gtest = True
+        if (
+            include_target in CATCH2_INCLUDE_NAMES
+            or "catch2" in include_target
+            or include_target.endswith("catch.hpp")
+        ):
+            analysis.includes_catch2 = True
+            analysis.uses_catch2 = True
 
+    if command.name in GTEST_TEST_MACROS:
+        analysis.tests_found = True
+        analysis.gtests_found = True
+        analysis.uses_gtest = True
+        analysis.test_macros_found.append(command.name)
+        return
 
-def extract_commands(root_node: Any, source_bytes: bytes, language: Any) -> list[CppCommand]:
-	"""Extract every include directive and macro/function invocation from a C++ parse tree."""
+    if command.name in CATCH2_TEST_MACROS:
+        analysis.tests_found = True
+        analysis.uses_catch2 = True
+        analysis.test_macros_found.append(command.name)
+        return
 
-	cursor = QueryCursor(_command_query(language))
-
-	commands: list[CppCommand] = []
-	for _, captures in cursor.matches(root_node):
-		include_path_nodes = captures.get("include.path")
-		if include_path_nodes:
-			include_target = extract_include_target(include_path_nodes[0], source_bytes)
-			if include_target:
-				commands.append(CppCommand(name="include", arguments=[include_target], line=line_number(include_path_nodes[0])))
-			continue
-
-		name_nodes = captures.get("macro.name")
-		if not name_nodes:
-			continue
-
-		name_node = name_nodes[0]
-		args_node = captures.get("macro.args", [None])[0]
-		arguments = [node_text(child, source_bytes) for child in args_node.named_children] if args_node is not None else []
-		commands.append(CppCommand(name=node_text(name_node, source_bytes), arguments=arguments, line=line_number(name_node)))
-
-	return commands
+    if command.name in GENERIC_TEST_MACROS:
+        analysis.tests_found = True
+        analysis.test_macros_found.append(command.name)
 
 
-def update_cpp_flags(analysis: CppFileAnalysis, command: CppCommand) -> None:
-	"""Update a file analysis with one extracted C++ command."""
+def extract_include_target(path_node: Node, source_bytes: bytes) -> str | None:
+    """Extract the target of an include directive from its ``path`` field node."""
 
-	if command.name == "include" and command.arguments:
-		include_target = command.arguments[0].lower()
-		if include_target in GTEST_INCLUDE_NAMES or "gtest" in include_target:
-			analysis.includes_gtest = True
-			analysis.uses_gtest = True
-		if include_target in CATCH2_INCLUDE_NAMES or "catch2" in include_target or include_target.endswith("catch.hpp"):
-			analysis.includes_catch2 = True
-			analysis.uses_catch2 = True
+    if path_node.type == "system_lib_string":
+        return node_text(path_node, source_bytes).strip().strip("<>")
 
-	if command.name in GTEST_TEST_MACROS:
-		analysis.tests_found = True
-		analysis.gtests_found = True
-		analysis.uses_gtest = True
-		analysis.test_macros_found.append(command.name)
-		return
+    if path_node.type == "string_literal":
+        for child in path_node.named_children:
+            if child.type == "string_content":
+                return node_text(child, source_bytes)
 
-	if command.name in CATCH2_TEST_MACROS:
-		analysis.tests_found = True
-		analysis.uses_catch2 = True
-		analysis.test_macros_found.append(command.name)
-		return
-
-	if command.name == "SCENARIO":
-		analysis.tests_found = True
-		analysis.uses_catch2 = True
-		analysis.test_macros_found.append(command.name)
-
-	if command.name in GENERIC_TEST_MACROS:
-		analysis.tests_found = True
-		analysis.test_macros_found.append(command.name)
-
-
-def extract_include_target(path_node: Any, source_bytes: bytes) -> str | None:
-	"""Extract the target of an include directive from its ``path`` field node."""
-
-	if path_node.type == "system_lib_string":
-		return node_text(path_node, source_bytes).strip().strip("<>")
-
-	if path_node.type == "string_literal":
-		for child in path_node.named_children:
-			if child.type == "string_content":
-				return node_text(child, source_bytes)
-
-	return None
-
-
-def line_number(node: Any) -> int | None:
-	position = getattr(node, "start_point", None)
-	if position is None:
-		return None
-
-	return position[0] + 1
-
-
-def node_text(node: Any, source_bytes: bytes) -> str:
-	start_byte = getattr(node, "start_byte", None)
-	end_byte = getattr(node, "end_byte", None)
-	if start_byte is None or end_byte is None:
-		return getattr(node, "text", "")
-
-	try:
-		return source_bytes[start_byte:end_byte].decode("utf-8", errors="replace")
-	except Exception:  # pragma: no cover - defensive fallback for unusual parser backends
-		return getattr(node, "text", "")
+    return None

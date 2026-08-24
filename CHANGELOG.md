@@ -182,11 +182,64 @@ jede verbleibende Abweichung lässt sich auf eine der drei in Schritt 5 genannte
 lexikalischen Grenzen der Baseline zurückführen, nicht mehr auf unterschiedliche
 Prüfbedingungen zwischen den beiden Tools.
 
+## 7. Refactoring des Tree-sitter-Teils (ohne Logikänderung)
+
+Aufräumen des über mehrere Iterationen gewachsenen Codes. **Die Analyseausgabe ist
+dabei bit-identisch geblieben** — nachgewiesen über einen erneuten Lauf über alle
+206 Repos und einen `diff` gegen die vorherige `treesitter.csv`.
+
+**Entfernter toter Code (~120 Zeilen):**
+- `as_dict()` auf allen vier Result-Dataclasses — kein Aufrufer; dazu das nur von
+  dort gelesene `exists`-Feld.
+- `CollectedSources.all_files`, `collect_cmake_files()`, `collect_cpp_files()`.
+- `FRAMEWORK_KEYWORDS` — seit dem `find_package`-Fix (Schritt 6C) ungenutzt.
+- Ein **unerreichbarer** `SCENARIO`-Zweig in `cpp_ast.py::update_cpp_flags`:
+  `SCENARIO` steht bereits in `CATCH2_TEST_MACROS`, dessen Zweig vorher `return`t.
+- Der `os.walk`-Fallback in `source_collector.py` — `Path.walk()` existiert ab
+  Python 3.12, das Projekt fordert `>=3.12`.
+- Der „gibt `None` zurück, wenn tree_sitter fehlt"-Pfad in `tree_sitter_backend.py`:
+  wirkungslos, weil die AST-Module `tree_sitter` auf Modulebene importieren.
+- In `cli2.py`: ungenutztes `import os` sowie die nur hochgezählten, nie gelesenen
+  Zähler `cloned_repos`/`existing_repos`.
+
+**Zusammengeführte Duplikate:**
+- `unique_sorted` existierte **dreifach** (`results.py`, `cpp_results.py`,
+  `source_collector.py::_unique_sorted`) → `common.py`.
+- `node_text()`, `line_number()` und der Query-Cache je zweifach in den beiden
+  AST-Modulen → `tree_sitter_backend.py`. Der geteilte Cache wird jetzt mit
+  `(id(language), query_source)` verschlüsselt statt nur mit `id(language)`, damit
+  sich CMake- und C++-Query nicht gegenseitig überschreiben.
+- `CMakeCommand`/`CppCommand` waren strukturgleich → eine `Command`-Dataclass.
+- Das identische Lese-/Parse-Boilerplate aus `parse_cmake_file`/`parse_cpp_file`
+  → `read_and_parse()`. Die Reihenfolge (erst Existenzprüfung, dann Parserbau)
+  bleibt erhalten, damit bei fehlender Grammatik weiterhin eine Analyse mit
+  `parse_errors` zurückkommt statt einer Exception.
+
+**Struktur:** `detector.py` → `cmake_parser.py` (war irreführend generisch benannt,
+ist der CMake-Orchestrator), `results.py` → `cmake_results.py` (Symmetrie zu
+`cpp_results.py`), die reine Re-Export-Facade `cmake_parser.py` ersatzlos entfernt —
+`__init__.py` importiert direkt. Defensive `Any`-Annotationen und
+`getattr(node, ...)`-Zugriffe durch echte `tree_sitter`-Typen ersetzt.
+
+**Tests:** aufgeteilt in `test_treesitter_cmake.py`/`test_treesitter_cpp.py`,
+modul-weite Parser-Fixtures in `conftest.py` (statt neun Einzelkonstruktionen), je
+ein `analyse()`-Helfer pro Modul. Die zwei reinen Facade-Tests entfielen mit der
+Facade, dafür zwei neue Tests für den Fehlerpfad bei fehlender Datei. 32 Tests grün.
+
+**Sonstiges:** `comp_rgx_ts.py` hat einen Konsolen-Entrypoint bekommen
+(`testing-artifact-detector-compare`); Einrückung im gesamten Paket auf 4 Spaces
+vereinheitlicht (vorher Tabs, im Widerspruch zum Rest des Projekts).
+
+Bewusst nicht angefasst: `cli2.py`/`cli.py` teilen sich ~110 duplizierte Zeilen
+Orchestrierung; deduplizieren ginge nur durch Änderungen an `cli.py`, das als
+Vergleichsbaseline stabil bleiben soll.
+
 ## Offene Punkte
 
 - C++-Quellcode-Ebene (`cpp_*`) noch nicht in den fairen Vergleich integriert —
   geplant als eigener Auswertungsschritt für F03/Cross-Language-Mapping (§4.4),
   siehe `Checklist.md`.
+- Keine Testabdeckung für `source_collector.py` und `tree_sitter_backend.py`.
 - A) und B) aus Schritt 6 sind sachlich korrekte Heuristik-Erweiterungen über die
   Baseline hinaus (GTest-Erkennung über `gtest_discover_tests`; ggf. auch
   `enable_testing()` als schwaches Testindiz). Kandidaten für eine bewusste,

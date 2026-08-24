@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 testing-artifact-detector = "testing_artifact_detector.cli:main"
 testing-artifact-detector-ts = "testing_artifact_detector.cli2:main"
+testing-artifact-detector-compare = "testing_artifact_detector.treesitter_detector.comp_rgx_ts:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
