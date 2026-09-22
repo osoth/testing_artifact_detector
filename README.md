@@ -85,6 +85,26 @@ rather than folded into `cmake_tests_found`. Wrappers defined outside the reposi
 (e.g. `dune_add_test` from dune-common) cannot be resolved without the build
 environment, which is out of scope for this tool.
 
+Since the CMake analysis is where the AST-specific work happens, `--cmake-only` skips
+the C++ source scan:
+
+> testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/ --cmake-only
+
+The C++ columns are then left empty rather than set to `False`, so "not analysed" stays
+distinguishable from "analysed, found nothing". Roughly 97% of the parsing time is spent
+on C++ sources, so this is considerably faster when iterating on the CMake analysis.
+
+`--inventory-out` additionally writes a structured test inventory as JSON Lines, one
+repository per line:
+
+> testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/ --cmake-only --inventory-out foo/test_inventory.jsonl
+
+Where the CSV carries per-repository counts, the inventory carries the reconstruction
+itself: every test with its name, the wrapper chain that registered it, the definition
+and call sites, the executable target and its source files, what drives the test
+(a project binary or an external tool such as python or mpiexec), and the `if()`
+condition guarding it.
+
 Further details and options are given by
 
 > testing-artifact-detector-ts --help

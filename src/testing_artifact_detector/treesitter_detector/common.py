@@ -20,6 +20,9 @@ class Command:
     name: str
     arguments: list[str]
     line: int | None = None
+    #: Byte offset of the command name in its source file. Used to tell an
+    #: invocation at file scope apart from one inside a macro/function body.
+    byte_offset: int | None = None
 
 
 def unique_sorted(items: Iterable[str]) -> list[str]:

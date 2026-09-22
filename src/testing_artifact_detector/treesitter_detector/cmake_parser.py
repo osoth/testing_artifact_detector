@@ -12,10 +12,14 @@ from tree_sitter import Parser
 from .cmake_ast import (
     extract_commands,
     extract_definitions,
+    extract_if_blocks,
+    extract_loops,
     extract_project_languages,
     extract_top_level_command_names,
     update_framework_flags,
 )
+from .cmake_graph import build_file_graph
+from .cmake_semantics import collect_test_registrations
 from .cmake_results import (
     CMakeFileAnalysis,
     CMakeRepositoryAnalysis,
@@ -56,6 +60,7 @@ def parse_cmake_file(file_path: str | Path, parser: Parser | None = None) -> CMa
     # a literal top-level CMakeLists.txt.
     analysis.has_cmakelists = True
     analysis.parsed = True
+    analysis.has_syntax_errors = tree.root_node.has_error
 
     for command in extract_commands(tree.root_node, source_bytes, parser.language):
         analysis.commands_found.append(command)
@@ -85,6 +90,8 @@ def parse_cmake_file(file_path: str | Path, parser: Parser | None = None) -> CMa
     analysis.definitions = extract_definitions(
         tree.root_node, source_bytes, parser.language, str(path)
     )
+    analysis.loops = extract_loops(tree.root_node, source_bytes, parser.language)
+    analysis.if_blocks = extract_if_blocks(tree.root_node, source_bytes, parser.language)
     analysis.top_level_commands = sorted(
         extract_top_level_command_names(
             tree.root_node, source_bytes, parser.language, analysis.definitions
@@ -100,22 +107,25 @@ def parse_cmake_file(file_path: str | Path, parser: Parser | None = None) -> CMa
 
 def resolve_test_wrappers(
     analyses: list[CMakeFileAnalysis],
+    reachable_files: frozenset[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """
     Resolve which repo-defined macros/functions register tests, and which of them
     are actually reachable.
 
-    Wrapper names are resolved repository-wide rather than per file, because CMake
+    Wrapper names are resolved across files rather than per file, because CMake
     projects typically define helpers in ``cmake/*.cmake`` and call them from
-    subdirectory ``CMakeLists.txt`` files. ``source_collector`` already yields every
-    CMake file, so no ``include()`` resolution is needed for in-repo modules.
+    subdirectory ``CMakeLists.txt`` files.
 
-    This deliberately ignores CMake's evaluation order (``include()`` /
-    ``add_subdirectory()``): a definition counts even if its file is never
-    included. For detecting test artifacts that is the conservative direction.
-
+    :param analyses: Per-file analyses of the repository.
+    :param reachable_files: Restrict the analysis to files the project actually
+        evaluates (see ``cmake_graph.build_file_graph``). When omitted, every file
+        is considered, which over-approximates in favour of finding tests.
     :return: ``(reachable test wrappers, test wrappers that are never reached)``.
     """
+
+    if reachable_files is not None:
+        analyses = [analysis for analysis in analyses if analysis.file_path in reachable_files]
 
     # name -> commands its body calls (a name may be defined more than once)
     bodies: dict[str, set[str]] = {}
@@ -160,12 +170,16 @@ def resolve_test_wrappers(
 def analyse_cmake_repository(
     cmake_files: Iterable[str | Path],
     parser: Parser | None = None,
+    repo_root: str | Path | None = None,
 ) -> CMakeRepositoryAnalysis:
     """
     Analyse a set of CMake files and aggregate the results.
 
     :param cmake_files: Paths to CMake source files.
     :param parser: Optional pre-configured Tree-sitter parser.
+    :param repo_root: Repository root, used to locate the top-level CMakeLists.txt
+        for the evaluation-order model. Without it the shallowest CMakeLists.txt is
+        used instead.
     :return: Repository-level analysis result.
     """
 
@@ -175,17 +189,36 @@ def analyse_cmake_repository(
         analyses=analyses,
     )
 
+    # The flat, baseline-parity flags deliberately look at every file on disk.
     result.has_cmakelists = any(analysis.has_cmakelists for analysis in analyses)
     result.tests_found = any(analysis.tests_found for analysis in analyses)
     result.gtests_found = any(analysis.gtests_found for analysis in analyses)
     result.uses_gtest = any(analysis.uses_gtest for analysis in analyses)
     result.uses_catch2 = any(analysis.uses_catch2 for analysis in analyses)
     result.enable_testing = any(analysis.enable_testing for analysis in analyses)
-    result.test_wrappers, result.unused_test_wrappers = resolve_test_wrappers(analyses)
+
+    # Everything below models what CMake would actually evaluate.
+    graph = build_file_graph(analyses, repo_root=repo_root)
+    result.files_reachable = len(graph.reachable)
+    result.files_unreachable = len(analyses) - len(graph.reachable) - len(graph.templates)
+    result.files_templates = len(graph.templates)
+    result.files_with_syntax_errors = sum(
+        1 for analysis in analyses if analysis.has_syntax_errors
+    )
+    result.unresolved_directives = graph.unresolved_directives
+
+    result.test_registrations = collect_test_registrations(
+        analyses, reachable_files=graph.reachable,
+        repo_root=str(repo_root) if repo_root else None,
+    )
+    result.test_wrappers, result.unused_test_wrappers = resolve_test_wrappers(
+        analyses, reachable_files=graph.reachable
+    )
     result.tests_via_wrapper = bool(result.test_wrappers)
     result.tests_found_reachable = result.tests_via_wrapper or any(
         name in TEST_COMMANDS
         for analysis in analyses
+        if analysis.file_path in graph.reachable
         for name in analysis.top_level_commands
     )
     result.languages = unique_sorted(
