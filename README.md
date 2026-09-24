@@ -62,10 +62,10 @@ command line.
 
 # Tree-sitter version (AST-based analysis)
 
-An alternative, Tree-sitter/AST-based analysis path for C++ and CMake test-artifact
-detection is available via `testing-artifact-detector-ts` (implemented in `cli2.py`,
-using the modules under `src/testing_artifact_detector/treesitter_detector/`). It
-takes the same kind of input/output as the regex-based tool above:
+An alternative, Tree-sitter/AST-based analysis path for CMake test-artifact detection
+is available via `testing-artifact-detector-ts` (implemented in `cli2.py`, using the
+modules under `src/testing_artifact_detector/treesitter_detector/`). It takes the same
+kind of input/output as the regex-based tool above:
 
 > testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/
 
@@ -85,8 +85,11 @@ rather than folded into `cmake_tests_found`. Wrappers defined outside the reposi
 (e.g. `dune_add_test` from dune-common) cannot be resolved without the build
 environment, which is out of scope for this tool.
 
-Since the CMake analysis is where the AST-specific work happens, `--cmake-only` skips
-the C++ source scan:
+CMake is the tool's subject, matching the scope of the regex-based detector it is
+compared against. The C++ source analysis is optional and lives in its own subpackage,
+`treesitter_detector/cpp/`; it is kept as a demonstration that a second language plugs
+in by adding an extraction and a result module, without touching the CMake analysis.
+`--cmake-only` skips it entirely:
 
 > testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/ --cmake-only
 
@@ -111,7 +114,7 @@ Further details and options are given by
 
 # Comparing the regex and Tree-sitter results
 
-`comp_rgx_ts.py` (in `src/testing_artifact_detector/treesitter_detector/`) compares
+`comp_rgx_ts.py` (in `src/testing_artifact_detector/evaluation/`) compares
 the CSV outputs of the two tools above and reports, per test-artifact indicator,
 where they agree or disagree. It only compares the fields both tools derive the
 same way (CMake-file-based signals: `find_package`, `add_test`,
@@ -124,7 +127,7 @@ Run it after producing both output CSVs:
 
 The same script can also be called directly, without installing the package:
 
-> python src/testing_artifact_detector/treesitter_detector/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+> python src/testing_artifact_detector/evaluation/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
 
 `--diff-out` is optional; when given, every disagreeing or missing-data row is
 written to that CSV for manual review. See `CHANGELOG.md` for a worked example and
@@ -164,6 +167,28 @@ Both scripts share their comparison machinery via `comparison.py`.
 │       │   ├── check_test_types.py
 │       │   ├── __init__.py
 │       │   └── util.py
+│       ├── evaluation # Compares the two detectors' outputs, not a detector itself
+│       │   ├── comparison.py # Shared machinery of the two comparison scripts
+│       │   ├── comp_rgx_ts.py # Strict comparison: same heuristics, AST vs regex
+│       │   ├── comp_rgx_ts_deep.py # Full-capability comparison
+│       │   └── __init__.py
+│       ├── treesitter_detector # AST-based analysis (see "Tree-sitter version" above)
+│       │   ├── cmake_ast.py # Node extraction via the Tree-sitter query API
+│       │   ├── cmake_graph.py # Evaluation order: which files CMake actually reads
+│       │   ├── cmake_parser.py # Orchestrates the syntactic and the semantic pass
+│       │   ├── cmake_results.py # Data model of the analysis results
+│       │   ├── cmake_semantics.py # Expansion, argument binding, classification
+│       │   ├── common.py
+│       │   ├── cpp # OPTIONAL, not part of the CMake detection path
+│       │   │   ├── cpp_ast.py
+│       │   │   ├── cpp_parser.py
+│       │   │   ├── cpp_results.py
+│       │   │   └── __init__.py
+│       │   ├── __init__.py
+│       │   ├── inventory.py # Serialises the test inventory as JSON Lines
+│       │   ├── source_collector.py
+│       │   └── tree_sitter_backend.py # Parser construction and query caching
+│       ├── cli2.py # Entry point of the Tree-sitter version
 │       ├── __init__.py
 │       ├── __main__.py
 │       └── repo_languages.py # cloc based implementation for language analysis
