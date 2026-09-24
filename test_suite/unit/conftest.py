@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.testing_artifact_detector.treesitter_detector import build_cmake_parser, build_cpp_parser
+from src.testing_artifact_detector.treesitter_detector import build_cmake_parser
+from src.testing_artifact_detector.treesitter_detector.cpp import build_cpp_parser
 
 
 @pytest.fixture(scope="module")

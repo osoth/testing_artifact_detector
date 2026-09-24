@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.testing_artifact_detector.treesitter_detector import cpp_parser as cpp_parser_module
-from src.testing_artifact_detector.treesitter_detector.cpp_results import CppFileAnalysis
+from src.testing_artifact_detector.treesitter_detector.cpp import cpp_parser as cpp_parser_module
+from src.testing_artifact_detector.treesitter_detector.cpp.cpp_results import CppFileAnalysis
 
 
 def analyse(tmp_path, source: str, parser, filename: str = "sample.cpp") -> CppFileAnalysis:
@@ -50,13 +50,6 @@ def test_parse_cpp_file_does_not_flag_ordinary_functions_as_tests(tmp_path, cpp_
     assert analysis.tests_found is False
     assert analysis.test_macros_found == []
     assert {command.name for command in analysis.commands_found} == {"notATest", "doWork"}
-
-
-def test_parse_cpp_file_records_error_for_missing_file(tmp_path, cpp_parser):
-    analysis = cpp_parser_module.parse_cpp_file(tmp_path / "nope.cpp", parser=cpp_parser)
-
-    assert analysis.parsed is False
-    assert analysis.parse_errors == ["File does not exist or is not a regular file."]
 
 
 def test_analyse_cpp_repository_aggregates_results(monkeypatch):

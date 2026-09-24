@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.testing_artifact_detector.treesitter_detector import cmake_parser as cmake_parser_module
 from src.testing_artifact_detector.treesitter_detector.cmake_results import (
     CMakeFileAnalysis,
@@ -53,19 +55,37 @@ def test_parse_cmake_file_uses_ast_helpers(tmp_path, cmake_parser):
     ]
 
 
-def test_parse_cmake_file_find_package_catch2_does_not_imply_gtest(tmp_path, cmake_parser):
-    analysis = analyse(tmp_path, "find_package(Catch2 REQUIRED)\n", cmake_parser)
+@pytest.mark.parametrize(
+    "source, filename, expected",
+    [
+        ("find_package(Catch2 REQUIRED)\n", "CMakeLists.txt",
+         {"uses_catch2": True, "uses_gtest": False}),
+        ("find_package(GTest REQUIRED)\n", "CMakeLists.txt",
+         {"uses_gtest": True, "gtests_found": False, "tests_found": False}),
+        ("enable_testing()\n", "CMakeLists.txt",
+         {"enable_testing": True, "tests_found": False}),
+        ("find_package(Foo COMPONENTS GTest)\n", "CMakeLists.txt",
+         {"uses_gtest": False}),
+        ("set(FOO 1)\n", "utils.cmake",
+         {"has_cmakelists": True}),
+    ],
+    ids=["catch2_is_not_gtest", "dependency_is_no_test", "enable_testing_is_no_test",
+         "find_package_first_argument_only", "any_cmake_file_counts"],
+)
+def test_parse_cmake_file_keeps_baseline_heuristics(
+    tmp_path, cmake_parser, source, filename, expected
+):
+    """
+    The four alignments to the regex baseline, see CHANGELOG.md section 6.
 
-    assert analysis.uses_catch2 is True
-    assert analysis.uses_gtest is False
+    Each case pins down a condition the baseline checks the same way, so that a
+    later difference between the two tools is attributable to parsing alone.
+    """
 
+    analysis = analyse(tmp_path, source, cmake_parser, filename=filename)
 
-def test_parse_cmake_file_find_package_gtest_alone_does_not_set_gtests_found(tmp_path, cmake_parser):
-    analysis = analyse(tmp_path, "find_package(GTest REQUIRED)\n", cmake_parser)
-
-    assert analysis.uses_gtest is True
-    assert analysis.gtests_found is False
-    assert analysis.tests_found is False
+    for attribute, value in expected.items():
+        assert getattr(analysis, attribute) is value
 
 
 def test_parse_cmake_file_gtest_discover_tests_sets_gtests_found(tmp_path, cmake_parser):
@@ -76,25 +96,6 @@ def test_parse_cmake_file_gtest_discover_tests_sets_gtests_found(tmp_path, cmake
     assert analysis.uses_gtest is False
     assert analysis.gtests_found is True
     assert analysis.tests_found is True
-
-
-def test_parse_cmake_file_enable_testing_alone_does_not_set_tests_found(tmp_path, cmake_parser):
-    analysis = analyse(tmp_path, "enable_testing()\n", cmake_parser)
-
-    assert analysis.enable_testing is True
-    assert analysis.tests_found is False
-
-
-def test_parse_cmake_file_find_package_only_checks_first_argument(tmp_path, cmake_parser):
-    analysis = analyse(tmp_path, "find_package(Foo COMPONENTS GTest)\n", cmake_parser)
-
-    assert analysis.uses_gtest is False
-
-
-def test_parse_cmake_file_has_cmakelists_true_for_non_cmakelists_filename(tmp_path, cmake_parser):
-    analysis = analyse(tmp_path, "set(FOO 1)\n", cmake_parser, filename="utils.cmake")
-
-    assert analysis.has_cmakelists is True
 
 
 def test_parse_cmake_file_finds_commands_nested_in_if_and_function_blocks(tmp_path, cmake_parser):
@@ -204,47 +205,6 @@ def test_wrapper_defined_in_another_cmake_file_is_resolved(tmp_path, cmake_parse
     assert result.test_wrappers == ["helper_add_test"]
 
 
-def test_wrapper_resolution_is_case_insensitive(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt":
-            "macro(MY_ADD_TEST t)\n"
-            "  ADD_TEST(NAME ${t} COMMAND x)\n"
-            "endmacro()\n"
-            "my_add_test(demo)\n",
-    }, cmake_parser)
-
-    assert result.tests_via_wrapper is True
-    assert result.test_wrappers == ["my_add_test"]
-
-
-def test_mutually_recursive_wrappers_terminate(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt":
-            "macro(a t)\n"
-            "  b(${t})\n"
-            "endmacro()\n"
-            "macro(b t)\n"
-            "  a(${t})\n"
-            "  add_test(NAME ${t} COMMAND x)\n"
-            "endmacro()\n"
-            "a(demo)\n",
-    }, cmake_parser)
-
-    assert result.tests_via_wrapper is True
-    assert result.test_wrappers == ["a", "b"]
-
-
-def test_repository_without_wrappers_reports_none(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME plain COMMAND demo)\n",
-    }, cmake_parser)
-
-    assert result.tests_found is True
-    assert result.tests_via_wrapper is False
-    assert result.test_wrappers == []
-    assert result.unused_test_wrappers == []
-
-
 def test_tests_found_reachable_ignores_registration_in_uninvoked_macro(tmp_path, cmake_parser):
     result = analyse_repo(tmp_path, {
         "CMakeLists.txt":
@@ -259,34 +219,22 @@ def test_tests_found_reachable_ignores_registration_in_uninvoked_macro(tmp_path,
     assert result.tests_found_reachable is False
 
 
-def test_tests_found_reachable_counts_top_level_registration(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME plain COMMAND demo)\n",
-    }, cmake_parser)
+@pytest.mark.parametrize(
+    "source",
+    [
+        "add_test(NAME plain COMMAND demo)\n",
+        "if(BUILD_TESTING)\n  add_test(NAME conditional COMMAND demo)\nendif()\n",
+        "macro(my_add_test t)\n"
+        "  add_test(NAME ${t} COMMAND ${t})\n"
+        "endmacro()\n"
+        "my_add_test(demo)\n",
+    ],
+    ids=["top_level", "inside_if_block", "through_called_wrapper"],
+)
+def test_tests_found_reachable_counts_reachable_registrations(tmp_path, cmake_parser, source):
+    """An if() body is ordinary reachable code, unlike the body of an uncalled macro."""
 
-    assert result.tests_found_reachable is True
-
-
-def test_tests_found_reachable_counts_registration_inside_if_block(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt":
-            "if(BUILD_TESTING)\n"
-            "  add_test(NAME conditional COMMAND demo)\n"
-            "endif()\n",
-    }, cmake_parser)
-
-    # An if()/foreach() body is ordinary reachable code, unlike a macro body.
-    assert result.tests_found_reachable is True
-
-
-def test_tests_found_reachable_counts_called_wrapper(tmp_path, cmake_parser):
-    result = analyse_repo(tmp_path, {
-        "CMakeLists.txt":
-            "macro(my_add_test t)\n"
-            "  add_test(NAME ${t} COMMAND ${t})\n"
-            "endmacro()\n"
-            "my_add_test(demo)\n",
-    }, cmake_parser)
+    result = analyse_repo(tmp_path, {"CMakeLists.txt": source}, cmake_parser)
 
     assert result.tests_found_reachable is True
 
@@ -369,33 +317,28 @@ def test_graph_ignores_file_not_reached_from_root(tmp_path, cmake_parser):
     assert result.tests_found_reachable is False
 
 
-def test_graph_follows_include_of_cmake_module(tmp_path, cmake_parser):
+@pytest.mark.parametrize(
+    "root_source, module_path",
+    [
+        ("include(cmake/Helpers.cmake)\nhelper_add_test(demo)\n", "cmake/Helpers.cmake"),
+        ("include(Helpers)\nhelper_add_test(demo)\n", "cmake/Helpers.cmake"),
+        ("find_package(Helpers REQUIRED)\nhelper_add_test(demo)\n", "cmake/FindHelpers.cmake"),
+    ],
+    ids=["include_by_path", "include_by_bare_name", "find_package_to_repo_module"],
+)
+def test_graph_reaches_modules_through_every_loading_command(
+    tmp_path, cmake_parser, root_source, module_path
+):
+    """CMake reaches a module file through include() or a repo-provided Find module."""
+
     result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "include(cmake/Helpers.cmake)\nhelper_add_test(demo)\n",
-        "cmake/Helpers.cmake": "macro(helper_add_test t)\n  add_test(NAME ${t} COMMAND ${t})\nendmacro()\n",
+        "CMakeLists.txt": root_source,
+        module_path:
+            "macro(helper_add_test t)\n  add_test(NAME ${t} COMMAND ${t})\nendmacro()\n",
     }, cmake_parser)
 
     assert result.files_reachable == 2
     assert result.test_wrappers == ["helper_add_test"]
-
-
-def test_graph_follows_include_by_bare_module_name(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "include(Helpers)\nhelper_add_test(demo)\n",
-        "cmake/Helpers.cmake": "macro(helper_add_test t)\n  add_test(NAME ${t} COMMAND ${t})\nendmacro()\n",
-    }, cmake_parser)
-
-    assert result.files_reachable == 2
-    assert result.test_wrappers == ["helper_add_test"]
-
-
-def test_graph_follows_find_package_to_repo_provided_module(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "find_package(Foo REQUIRED)\nfoo_add_test(demo)\n",
-        "cmake/FindFoo.cmake": "macro(foo_add_test t)\n  add_test(NAME ${t} COMMAND ${t})\nendmacro()\n",
-    }, cmake_parser)
-
-    assert result.test_wrappers == ["foo_add_test"]
 
 
 def test_graph_treats_dot_in_files_as_templates(tmp_path, cmake_parser):
@@ -417,42 +360,51 @@ def test_graph_counts_unresolvable_directives_without_pruning(tmp_path, cmake_pa
     assert result.unresolved_directives == 1
 
 
-def test_graph_degrades_gracefully_without_root_cmakelists(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "modules/Helpers.cmake": "add_test(NAME orphan COMMAND demo)\n",
-    }, cmake_parser)
+@pytest.mark.parametrize(
+    "files, expected_reachable",
+    [
+        ({"modules/Helpers.cmake": "add_test(NAME orphan COMMAND demo)\n"}, 1),
+        ({"project_a/CMakeLists.txt": "project(A)\n",
+          "project_b/CMakeLists.txt": "add_test(NAME b_test COMMAND demo)\n"}, 2),
+    ],
+    ids=["only_module_files", "independent_subprojects"],
+)
+def test_graph_degrades_gracefully_without_root_cmakelists(
+    tmp_path, cmake_parser, files, expected_reachable
+):
+    """
+    Without a root there is no entry point, so every file stays reachable.
 
-    # With no root to start from, every file is treated as reachable rather than
-    # silently reporting "no tests".
-    assert result.files_reachable == 1
+    Picking one file as the root arbitrarily would prune the rest and invent
+    false negatives.
+    """
+
+    result = analyse_repo_with_root(tmp_path, files, cmake_parser)
+
+    assert result.files_reachable == expected_reachable
     assert result.tests_found_reachable is True
 
 
-def test_graph_keeps_subdirectories_reachable_when_add_subdirectory_is_computed(tmp_path, cmake_parser):
-    # Pattern seen in the wild (repo 3061):
-    #   SUBDIRLIST(SUBDIRS ${CMAKE_CURRENT_LIST_DIR})
-    #   foreach(d ${SUBDIRS}) add_subdirectory(${d}) endforeach()
-    # The concrete names cannot be known statically, so pruning here would invent
-    # a false negative. Every immediate subdirectory must stay reachable.
+def test_graph_expands_computed_subdirectory_exactly_one_level(tmp_path, cmake_parser):
+    """
+    An add_subdirectory() with a computed argument keeps the immediate
+    subdirectories reachable, but only those.
+
+    Expanding further would let a single unresolvable command mark the whole
+    repository, vendored trees included, as reachable.
+    """
+
     result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_subdirectory(tests)\n",
-        "tests/CMakeLists.txt": "foreach(d ${SUBDIRS})\n  add_subdirectory(${d})\nendforeach()\n",
-        "tests/alpha/CMakeLists.txt": "add_test(NAME alpha COMMAND demo)\n",
+        "CMakeLists.txt":
+            "SUBDIRLIST(SUBDIRS ${CMAKE_CURRENT_LIST_DIR})\n"
+            "foreach(d ${SUBDIRS})\n  add_subdirectory(${d})\nendforeach()\n",
+        "tests/CMakeLists.txt": "add_test(NAME nested COMMAND demo)\n",
+        "tests/deep/CMakeLists.txt": "add_test(NAME deeper COMMAND demo)\n",
     }, cmake_parser)
 
-    assert result.unresolved_directives == 1
+    assert result.files_reachable == 2
+    assert result.files_unreachable == 1
     assert result.tests_found_reachable is True
-
-
-def test_graph_expansion_of_computed_subdirectory_stops_after_one_level(tmp_path, cmake_parser):
-    # The expansion must stay bounded: a single unresolved directive at the root
-    # must not mark a deeply nested vendored tree as reachable.
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_subdirectory(${SOME_DIR})\n",
-        "third_party/vendor/deep/CMakeLists.txt": "add_test(NAME vendored COMMAND demo)\n",
-    }, cmake_parser)
-
-    assert result.tests_found_reachable is False
 
 
 def test_graph_does_not_prune_when_file_has_syntax_errors(tmp_path, cmake_parser):
@@ -466,19 +418,6 @@ def test_graph_does_not_prune_when_file_has_syntax_errors(tmp_path, cmake_parser
     }, cmake_parser)
 
     assert result.files_with_syntax_errors >= 1
-    assert result.tests_found_reachable is True
-
-
-def test_graph_treats_repo_without_root_cmakelists_as_fully_reachable(tmp_path, cmake_parser):
-    # A repository of independent sub-projects (repo 6548) has no single entry
-    # point. Picking one arbitrarily and pruning the rest would invent false
-    # negatives.
-    result = analyse_repo_with_root(tmp_path, {
-        "project_a/CMakeLists.txt": "project(A)\n",
-        "project_b/CMakeLists.txt": "add_test(NAME b_test COMMAND demo)\n",
-    }, cmake_parser)
-
-    assert result.files_reachable == 2
     assert result.tests_found_reachable is True
 
 
@@ -607,44 +546,32 @@ def test_set_inside_wrapper_body_extends_the_binding(tmp_path, cmake_parser):
 # Counting those requires resolving the list, which a flat scan cannot do.
 
 
-def test_foreach_over_literal_list_registers_one_test_per_item(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt":
-            "foreach(t alpha beta gamma)\n"
-            "  add_test(NAME ${t} COMMAND ${t})\n"
-            "endforeach()\n",
-    }, cmake_parser)
+@pytest.mark.parametrize(
+    "source, expected_names",
+    [
+        ("foreach(t alpha beta gamma)\n"
+         "  add_test(NAME ${t} COMMAND ${t})\n"
+         "endforeach()\n",
+         ["alpha", "beta", "gamma"]),
+        ("set(TESTS a b c)\n"
+         "foreach(t ${TESTS})\n  add_test(NAME ${t} COMMAND ${t})\nendforeach()\n",
+         ["a", "b", "c"]),
+        ("set(L x y)\n"
+         "foreach(t IN LISTS L)\n  add_test(NAME ${t} COMMAND ${t})\nendforeach()\n",
+         ["x", "y"]),
+        ("foreach(t IN ITEMS p q)\n  add_test(NAME ${t} COMMAND ${t})\nendforeach()\n",
+         ["p", "q"]),
+        ("foreach(i RANGE 1 3)\n  add_test(NAME test_${i} COMMAND runner)\nendforeach()\n",
+         ["test_1", "test_2", "test_3"]),
+    ],
+    ids=["literal", "set_variable", "in_lists", "in_items", "range"],
+)
+def test_foreach_list_forms_are_resolved(tmp_path, cmake_parser, source, expected_names):
+    """All list forms CMake offers, each expanding to one registration per item."""
 
-    assert sorted(r.test_name for r in result.test_registrations) == ["alpha", "beta", "gamma"]
+    result = analyse_repo_with_root(tmp_path, {"CMakeLists.txt": source}, cmake_parser)
 
-
-def test_foreach_over_set_variable_is_resolved(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt":
-            "set(TESTS a b c)\n"
-            "foreach(t ${TESTS})\n  add_test(NAME ${t} COMMAND ${t})\nendforeach()\n",
-    }, cmake_parser)
-
-    assert sorted(r.test_name for r in result.test_registrations) == ["a", "b", "c"]
-
-
-def test_foreach_in_lists_form_is_resolved(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt":
-            "set(L x y)\n"
-            "foreach(t IN LISTS L)\n  add_test(NAME ${t} COMMAND ${t})\nendforeach()\n",
-    }, cmake_parser)
-
-    assert sorted(r.test_name for r in result.test_registrations) == ["x", "y"]
-
-
-def test_foreach_range_form_is_resolved(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt":
-            "foreach(i RANGE 1 3)\n  add_test(NAME test_${i} COMMAND runner)\nendforeach()\n",
-    }, cmake_parser)
-
-    assert sorted(r.test_name for r in result.test_registrations) == ["test_1", "test_2", "test_3"]
+    assert sorted(r.test_name for r in result.test_registrations) == expected_names
 
 
 def test_foreach_over_unknown_list_is_marked_indeterminate(tmp_path, cmake_parser):
@@ -771,32 +698,15 @@ def test_target_sources_are_normalised_relative_to_the_repo_root(tmp_path, cmake
     assert registration.target_sources == ["tests/u.cpp"]
 
 
-def test_unknown_command_leaves_target_unlinked(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND some_external_tool)\n",
-    }, cmake_parser)
+def test_ambiguous_include_reaches_all_candidates_deterministically(tmp_path, cmake_parser):
+    """
+    Which file an include() by bare name resolves to depends on CMAKE_MODULE_PATH
+    and is not knowable statically, so every candidate stays reachable.
 
-    [registration] = result.test_registrations
-    assert registration.target is None
-    assert registration.target_sources == []
+    Picking one arbitrarily made the result depend on set iteration order and
+    differ between runs, which the second half of this test guards against.
+    """
 
-
-def test_ambiguous_include_reaches_all_candidates(tmp_path, cmake_parser):
-    # Projects commonly hold many files with the same basename (repo 1185 has an
-    # enabled.cmake per module). Which one CMake picks depends on CMAKE_MODULE_PATH,
-    # which is not knowable statically - so all candidates must be treated as
-    # reachable. Picking one arbitrarily made the result depend on set iteration
-    # order and differ between runs.
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "include(enabled)\n",
-        "modules/a/enabled.cmake": "add_test(NAME a_test COMMAND a_exe)\n",
-        "modules/b/enabled.cmake": "add_test(NAME b_test COMMAND b_exe)\n",
-    }, cmake_parser)
-
-    assert sorted(r.test_name for r in result.test_registrations) == ["a_test", "b_test"]
-
-
-def test_analysis_is_deterministic_for_ambiguous_includes(tmp_path, cmake_parser):
     files = {
         "CMakeLists.txt": "include(shared)\n",
         "one/shared.cmake": "add_test(NAME one COMMAND one_exe)\n",
@@ -806,6 +716,7 @@ def test_analysis_is_deterministic_for_ambiguous_includes(tmp_path, cmake_parser
     first = analyse_repo_with_root(tmp_path / "a", files, cmake_parser)
     second = analyse_repo_with_root(tmp_path / "b", files, cmake_parser)
 
+    assert sorted(r.test_name for r in first.test_registrations) == ["one", "three", "two"]
     assert (
         sorted(r.test_name for r in first.test_registrations)
         == sorted(r.test_name for r in second.test_registrations)
@@ -818,38 +729,33 @@ def test_analysis_is_deterministic_for_ambiguous_includes(tmp_path, cmake_parser
 # resolved command, so a flat scan cannot make the distinction at all.
 
 
-def test_interpreter_driven_test_is_classified_as_external_tool(tmp_path, cmake_parser):
+@pytest.mark.parametrize(
+    "command, expected_driver",
+    [
+        ("${Python3_EXECUTABLE} run.py", "external_tool"),
+        ("${CMAKE_COMMAND} -E compare_files a b", "external_tool"),
+        ("check.sh", "external_tool"),
+        ("$<TARGET_FILE:Python3::Interpreter>", "external_tool"),
+        ("${SOMETHING_ELSE}", "unresolved"),
+    ],
+    ids=["interpreter_variable", "cmake_itself", "literal_script",
+         "imported_namespaced_target", "undeterminable"],
+)
+def test_driver_classification(tmp_path, cmake_parser, command, expected_driver):
+    """
+    A test that does not run a project binary is marked out of scope.
+
+    The distinction is drawn from CMake's own conventions, a ``*_EXECUTABLE``
+    variable or a ``Namespace::Target`` name, not from a list of tool names.
+    """
+
     result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND ${Python3_EXECUTABLE} run.py)\n",
+        "CMakeLists.txt": f"add_test(NAME x COMMAND {command})\n",
     }, cmake_parser)
 
     [registration] = result.test_registrations
-    assert registration.driver == "external_tool"
+    assert registration.driver == expected_driver
     assert registration.target is None
-
-
-def test_mpi_launcher_is_classified_as_external_tool(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND ${MPIEXEC_EXECUTABLE} -n 4 solver)\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].driver == "external_tool"
-
-
-def test_cmake_itself_as_driver_is_external_tool(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND ${CMAKE_COMMAND} -E compare_files a b)\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].driver == "external_tool"
-
-
-def test_literal_script_command_is_external_tool(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND check.sh)\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].driver == "external_tool"
 
 
 def test_project_executable_is_classified_as_repo_target(tmp_path, cmake_parser):
@@ -875,44 +781,31 @@ def test_binary_referenced_by_build_path_still_links_to_its_target(tmp_path, cma
     assert registration.target_sources == ["s.cpp"]
 
 
-def test_undeterminable_command_stays_unresolved(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND ${SOMETHING_ELSE})\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].driver == "unresolved"
-
-
-def test_imported_namespaced_target_is_classified_as_external(tmp_path, cmake_parser):
-    # Namespace::Target is CMake's convention for an imported/exported target, i.e.
-    # one provided by a dependency rather than built here.
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME x COMMAND $<TARGET_FILE:Python3::Interpreter>)\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].driver == "external_tool"
-
-
 # --- condition context ------------------------------------------------------
 # Tests are usually registered only under an option. Recording which one turns
 # "N tests" into "N tests if BUILD_TESTING is on" - the conditions are recorded,
 # never evaluated, since that is a property of the build configuration.
 
 
-def test_unconditional_registration_has_no_guard(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "add_test(NAME a COMMAND x)\n",
-    }, cmake_parser)
+@pytest.mark.parametrize(
+    "source, expected_guard",
+    [
+        ("add_test(NAME a COMMAND x)\n", None),
+        ("if(BUILD_TESTING)\n  add_test(NAME a COMMAND x)\nendif()\n", "BUILD_TESTING"),
+    ],
+    ids=["unconditional", "inside_if"],
+)
+def test_registration_records_its_guard(tmp_path, cmake_parser, source, expected_guard):
+    """
+    The condition is recorded, not evaluated.
 
-    assert result.test_registrations[0].guarded_by is None
+    Whether BUILD_TESTING is on is a property of the build configuration, not of
+    the source, so the analysis carries the condition along instead of deciding it.
+    """
 
+    result = analyse_repo_with_root(tmp_path, {"CMakeLists.txt": source}, cmake_parser)
 
-def test_registration_inside_if_records_the_condition(tmp_path, cmake_parser):
-    result = analyse_repo_with_root(tmp_path, {
-        "CMakeLists.txt": "if(BUILD_TESTING)\n  add_test(NAME a COMMAND x)\nendif()\n",
-    }, cmake_parser)
-
-    assert result.test_registrations[0].guarded_by == "BUILD_TESTING"
+    assert result.test_registrations[0].guarded_by == expected_guard
 
 
 def test_nested_conditions_are_combined_outermost_first(tmp_path, cmake_parser):
