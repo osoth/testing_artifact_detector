@@ -31,7 +31,11 @@ from .tree_sitter_backend import build_parser, read_and_parse
 
 
 def build_cmake_parser() -> Parser:
-    """Build a Tree-sitter parser for CMake using the 'tree-sitter-cmake' grammar."""
+    """
+    Build a Tree-sitter parser for CMake.
+
+    :return: A parser configured with the tree-sitter-cmake grammar.
+    """
 
     return build_parser("tree_sitter_cmake", "CMake")
 
@@ -74,12 +78,8 @@ def parse_cmake_file(file_path: str | Path, parser: Parser | None = None) -> CMa
 
         if command_name == "gtest_discover_tests":
             analysis.gtests_found = True
-            # tests_found is already set above (gtest_discover_tests is in
-            # TEST_COMMANDS). uses_gtest is deliberately NOT set here: the
-            # baseline only infers it from a find_package(GTest) call, never
-            # from gtest_discover_tests. See CHANGELOG.md - this would be a
-            # legitimate heuristic extension, but is kept out of the
-            # baseline-parity comparison for now.
+            # uses_gtest is deliberately not set here; it is derived from
+            # find_package(GTest) only, matching the baseline.
 
         if command_name == "find_package":
             update_framework_flags(analysis, command.arguments)
@@ -114,14 +114,14 @@ def resolve_test_wrappers(
     are actually reachable.
 
     Wrapper names are resolved across files rather than per file, because CMake
-    projects typically define helpers in ``cmake/*.cmake`` and call them from
-    subdirectory ``CMakeLists.txt`` files.
+    projects typically define helpers in cmake/*.cmake and call them from
+    subdirectory CMakeLists.txt files.
 
     :param analyses: Per-file analyses of the repository.
     :param reachable_files: Restrict the analysis to files the project actually
-        evaluates (see ``cmake_graph.build_file_graph``). When omitted, every file
+        evaluates (see cmake_graph.build_file_graph). When omitted, every file
         is considered, which over-approximates in favour of finding tests.
-    :return: ``(reachable test wrappers, test wrappers that are never reached)``.
+    :return: (reachable test wrappers, test wrappers that are never reached).
     """
 
     if reachable_files is not None:

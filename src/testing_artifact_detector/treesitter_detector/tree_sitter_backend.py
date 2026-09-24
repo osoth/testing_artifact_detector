@@ -7,9 +7,9 @@ node's source text, and the read-and-parse boilerplate used by the per-language
 parser modules.
 
 Both the CMake and C++ detectors are backed by the official per-language grammar
-packages (``tree-sitter-cmake`` / ``tree-sitter-cpp``, see ``pyproject.toml``), so
+packages (tree-sitter-cmake / tree-sitter-cpp, see pyproject.toml), so
 parser construction only needs to support that one loading path:
-``Language(<module>.language())`` followed by ``Parser(language)``.
+Language(<module>.language()) followed by Parser(language).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def build_parser(grammar_module_name: str, human_name: str) -> Parser:
     """
     Build a Tree-sitter parser for the given grammar package.
 
-    :param grammar_module_name: Import name of the grammar package (e.g. ``"tree_sitter_cpp"``).
+    :param grammar_module_name: Import name of the grammar package (e.g. "tree_sitter_cpp").
     :param human_name: Human-readable language name used in the error message.
     :return: A configured parser instance.
     :raises RuntimeError: If the grammar package is not installed.
@@ -49,8 +49,12 @@ def cached_query(language: Language, query_source: str) -> Query:
     """
     Compile a query once per (language, query source) pair and reuse it.
 
-    Compiling a query is comparatively expensive and the detectors run the same
-    handful of queries across thousands of files.
+    Compiling a query is comparatively expensive and the same handful of queries
+    runs across thousands of files.
+
+    :param language: The grammar the query is compiled against.
+    :param query_source: The query as an S-expression pattern.
+    :return: The compiled query, from the cache if it was compiled before.
     """
 
     cache_key = (id(language), query_source)
@@ -62,13 +66,24 @@ def cached_query(language: Language, query_source: str) -> Query:
 
 
 def node_text(node: Node, source_bytes: bytes) -> str:
-    """Return the source text a node spans."""
+    """
+    Return the source text a node spans.
+
+    :param node: The node to read.
+    :param source_bytes: The source file the node was parsed from.
+    :return: The decoded text between the node's start and end byte.
+    """
 
     return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
 
 def line_number(node: Node) -> int:
-    """Return the 1-based line number a node starts on."""
+    """
+    Return the 1-based line number a node starts on.
+
+    :param node: The node to locate.
+    :return: The line number, counting from 1 as editors do.
+    """
 
     return node.start_point[0] + 1
 
@@ -83,10 +98,10 @@ def read_and_parse(
     Read a source file and parse it, recording any failure instead of raising.
 
     :param path: File to read.
-    :param parser: Pre-configured parser, or ``None`` to build one on demand.
-    :param build_parser_fn: Factory used when ``parser`` is ``None``.
+    :param parser: Pre-configured parser, or None to build one on demand.
+    :param build_parser_fn: Factory used when parser is None.
     :param parse_errors: List that failure messages are appended to.
-    :return: ``(tree, source_bytes, parser)``, or ``None`` if the file could not
+    :return: (tree, source_bytes, parser), or None if the file could not
         be read or parsed. The parser is returned as well because callers need
         its language to run queries.
     """

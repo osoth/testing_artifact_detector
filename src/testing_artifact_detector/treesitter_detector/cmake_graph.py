@@ -1,20 +1,13 @@
 """
 Evaluation-order model for a CMake project.
 
-CMake does not evaluate every ``CMakeLists.txt``/``*.cmake`` file it finds on disk.
-It starts at the top-level ``CMakeLists.txt`` and only reaches further files through
-``add_subdirectory()``, ``include()`` and module lookups. Vendored third-party trees,
-unused helper modules and configure-time templates are never evaluated at all.
+CMake does not evaluate every file it finds on disk. It starts at the top-level
+CMakeLists.txt and reaches further files only through add_subdirectory(),
+include() and module lookups.
 
-Reconstructing that graph is what separates a structural analysis from a flat scan:
-a ``add_test`` in a file CMake never reads is not a registered test. A line-based
-regex has no way to express this, because it has no notion of which file leads to
-which other file.
-
-The graph is deliberately **conservative**: where a directive cannot be resolved
-(``include(${SOME_VAR})``), the file is not pruned and the directive is counted in
-``unresolved_directives`` instead. Over-approximating reachability keeps the analysis
-from inventing false negatives.
+Where a command cannot be resolved, the file is not pruned and the command is
+counted in unresolved_directives instead, so that reachability is
+over-approximated rather than under-approximated.
 """
 
 from __future__ import annotations
@@ -50,7 +43,12 @@ class FileGraph:
 
 
 def is_template(file_path: str) -> bool:
-    """A ``*.in`` file is a configure_file() input, never evaluated as CMake itself."""
+    """
+    Check whether a file is a configure_file() template.
+
+    :param file_path: The path to test.
+    :return: True for a *.in file, which is never evaluated as CMake itself.
+    """
 
     return file_path.endswith(".in")
 
@@ -62,9 +60,9 @@ def build_file_graph(
     """
     Determine which of the analysed CMake files the project would actually evaluate.
 
-    :param analyses: Per-file analyses; only ``file_path`` and ``commands_found`` are used.
-    :param repo_root: Repository root, used to locate the top-level ``CMakeLists.txt``.
-        When omitted, the shallowest ``CMakeLists.txt`` is used instead.
+    :param analyses: Per-file analyses; only file_path and commands_found are used.
+    :param repo_root: Repository root, used to locate the top-level CMakeLists.txt.
+        When omitted, the shallowest CMakeLists.txt is used instead.
     :return: The reachability graph. If no root can be determined, a degraded graph
         marking every non-template file reachable is returned.
     """
@@ -82,7 +80,7 @@ def build_file_graph(
             degraded=True,
         )
 
-    # Sorted, because ``candidates`` is a set: iterating it directly would make the
+    # Sorted, because candidates is a set: iterating it directly would make the
     # per-basename order - and with it the resolution of an ambiguous include() -
     # differ between runs.
     by_basename: dict[str, list[str]] = defaultdict(list)
@@ -126,11 +124,12 @@ def _find_root(candidates: set[str], repo_root: str | Path | None) -> str | None
     """
     Locate the top-level CMakeLists.txt.
 
-    When the repository root is known but holds no ``CMakeLists.txt``, the project
-    has no single entry point - it may be a collection of independent sub-projects
-    (repo 6548 is one). Picking some arbitrary file as the root and pruning
-    everything it does not reach would invent false negatives, so this reports "no
-    root" and lets the caller fall back to treating every file as reachable.
+    A repository of independent sub-projects has no single entry point. Rather
+    than picking an arbitrary file as the root and pruning everything it does not
+    reach, this reports "no root" and lets the caller treat every file as
+    reachable.
+
+    :return: The path of the top-level CMakeLists.txt, or None if there is none.
     """
 
     if repo_root is not None:
@@ -153,7 +152,7 @@ def _targets_of(
     """
     Resolve every file-pulling directive in one analysed file.
 
-    :return: ``(target path, could_resolve)`` pairs. ``could_resolve`` is False when
+    :return: (target path, could_resolve) pairs. could_resolve is False when
         the directive's argument could not be mapped to a file in the project.
     """
 
@@ -161,12 +160,9 @@ def _targets_of(
     results: list[tuple[str | None, bool]] = []
 
     if analysis.has_syntax_errors:
-        # Tree-sitter's error recovery can swallow a large span of a malformed file
-        # as raw text, hiding the directives inside it. Repo 1848 is a real example:
-        # a corrupted variable reference makes ~580 lines - including several
-        # add_subdirectory() calls - invisible to the query. Pruning on such an
-        # incomplete command list would invent false negatives, so the immediate
-        # subdirectories are kept reachable.
+        # Error recovery can swallow a large span of a malformed file as raw
+        # text, hiding the commands inside it. The command list is therefore
+        # incomplete and must not be used to prune.
         for path in _immediate_subdirectory_lists(directory, candidates):
             results.append((path, True))
 
@@ -220,7 +216,7 @@ def _join(directory: Path, *parts: str) -> str:
     """
     Join and normalise a path without touching the filesystem.
 
-    ``Path.resolve()`` must not be used here: it returns an absolute path, while the
+    Path.resolve() must not be used here: it returns an absolute path, while the
     analysed file paths keep whatever form the caller passed in (usually relative),
     so resolved paths would never match the candidate set.
     """
@@ -229,7 +225,7 @@ def _join(directory: Path, *parts: str) -> str:
 
 
 def _immediate_subdirectory_lists(directory: Path, candidates: set[str]) -> list[str]:
-    """Every ``CMakeLists.txt`` sitting in a direct subdirectory of ``directory``."""
+    """Every CMakeLists.txt sitting in a direct subdirectory of directory."""
 
     prefix = str(directory)
     found = []
@@ -255,15 +251,15 @@ def _resolve_include(
     by_basename: dict[str, list[str]],
 ) -> list[str]:
     """
-    Resolve an ``include()`` argument to the file(s) it may pull in.
+    Resolve an include() argument to the file(s) it may pull in.
 
     Handles a plain path, a bare module name (resolved through CMAKE_MODULE_PATH,
     approximated here by a project-wide basename lookup), and a path whose leading
-    component is a variable such as ``${CMAKE_CURRENT_SOURCE_DIR}/cmake/Foo.cmake``,
+    component is a variable such as ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Foo.cmake,
     where the trailing file name is still usable.
 
     An exact path match wins. Otherwise the basename may be ambiguous - projects
-    commonly hold many files called ``enabled.cmake`` or ``config.cmake``. Which one
+    commonly hold many files called enabled.cmake or config.cmake. Which one
     CMake picks depends on CMAKE_MODULE_PATH, which is not knowable statically, so
     *all* candidates are returned rather than an arbitrary one. Picking arbitrarily
     made the analysis depend on set iteration order and differ between runs.

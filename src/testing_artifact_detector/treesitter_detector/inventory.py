@@ -22,10 +22,15 @@ from .cmake_results import CMakeRepositoryAnalysis, TestRegistration
 
 
 def registration_to_dict(registration: TestRegistration) -> dict:
-    """Serialise one reconstructed test registration."""
+    """
+    Serialise one reconstructed test registration.
+
+    :param registration: The registration to serialise.
+    :return: A dictionary with all fields plus the derived resolved flag.
+    """
 
     record = asdict(registration)
-    # ``resolved`` is a property, so asdict() does not include it.
+    # resolved is a property, so asdict() does not include it.
     record["resolved"] = registration.resolved
     return record
 
@@ -35,7 +40,15 @@ def repo_inventory(
     repo_url: str,
     analysis: CMakeRepositoryAnalysis,
 ) -> dict:
-    """Build the inventory record for one repository."""
+    """
+    Build the inventory record for one repository.
+
+    :param project_id: Identifier of the repository in the input data set.
+    :param repo_url: URL the repository was cloned from.
+    :param analysis: The repository's completed CMake analysis.
+    :return: A dictionary with a summary, the wrapper lists and every
+        reconstructed registration.
+    """
 
     registrations = analysis.test_registrations
 
@@ -68,7 +81,12 @@ def repo_inventory(
 
 
 def write_inventory(path: str, records: list[dict]) -> None:
-    """Write the inventory as JSON Lines, one repository per line."""
+    """
+    Write the inventory as JSON Lines, one repository per line.
+
+    :param path: File to write to.
+    :param records: The per-repository records to serialise.
+    """
 
     with open(path, "w", encoding="utf-8") as handle:
         for record in records:

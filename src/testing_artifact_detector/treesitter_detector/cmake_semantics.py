@@ -1,26 +1,12 @@
 """
 Semantic pass over a CMake project: follow test registrations through wrappers.
 
-The syntactic pass reports *that* a file calls ``add_test``. This pass reconstructs
-*which tests* a project registers, by walking from the calls at file scope into the
-macro/function bodies they invoke, binding each definition's parameters to the
-arguments at the call site.
+Walks from the calls at file scope into the macro and function bodies they
+invoke, binding each definition's parameters to the arguments at the call site,
+so that a registration written as add_test(NAME ${name} ...) inside a wrapper
+resolves to the name the call site passes in.
 
-That binding is what makes the common real-world shape resolvable::
-
-    macro(my_add_test name)
-        add_test(NAME ${name} COMMAND ${name})
-    endmacro()
-    my_add_test(solver_test)     # -> test "solver_test" running target "solver_test"
-
-Three-quarters of the ``add_test`` calls in the evaluated corpus carry variables, so
-without binding their arguments cannot be read at all. A line-based regex cannot do
-this: it would have to know which definition a name refers to and which call site is
-currently being expanded.
-
-Variable *expansion* inside an already-extracted argument is done textually. That is
-not the weakness this work criticises in the regex baseline - CMake's ``${NAME}``
-syntax is regular, and the argument it applies to was identified structurally.
+Variable expansion inside an already-extracted argument is done textually.
 """
 
 from __future__ import annotations
@@ -67,8 +53,8 @@ _SOURCE_SUFFIXES = (
 
 _TARGET_FILE = re.compile(r"\$<TARGET_FILE(?:_NAME|_DIR)?:([^>]+)>")
 
-#: CMake's find_package modules publish their tool as ``<Pkg>_EXECUTABLE``; the
-#: build tool itself is ``CMAKE_COMMAND``. A test driven by one of these runs an
+#: CMake's find_package modules publish their tool as <Pkg>_EXECUTABLE; the
+#: build tool itself is CMAKE_COMMAND. A test driven by one of these runs an
 #: interpreter or helper from the environment, not an artifact of this repository.
 _TOOL_VARIABLE = re.compile(r"\$\{([A-Za-z0-9_]*_EXECUTABLE|CMAKE_COMMAND|CMAKE_CTEST_COMMAND|MPIEXEC)\}")
 
@@ -82,7 +68,7 @@ _TOOL_NAMES = {
 _SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".pl", ".rb", ".js", ".cmake", ".bat", ".ps1")
 
 #: Variables holding a build/output directory. A command like
-#: ``${CMAKE_BINARY_DIR}/solver_test`` names a binary this project builds - it is a
+#: ${CMAKE_BINARY_DIR}/solver_test names a binary this project builds - it is a
 #: repo target referenced by path rather than by target name.
 _DIRECTORY_VARIABLE = re.compile(
     r"\$\{(CMAKE_[A-Za-z0-9_]*(?:BINARY|RUNTIME|SOURCE)[A-Za-z0-9_]*DIR|EXECUTABLE_OUTPUT_PATH|[A-Za-z0-9_]*_OUTPUT_DIRECTORY)\}"
@@ -93,8 +79,13 @@ def classify_driver(raw_command: str, resolved_command: str | None, has_target: 
     """
     Decide what actually executes a test.
 
-    Checked on the *raw* command as well, because the variable name is the signal:
-    ``${Python3_EXECUTABLE}`` says "interpreter" even when its value is unknown.
+    The raw command is checked as well, because the variable name itself is the
+    signal: ${Python3_EXECUTABLE} says "interpreter" even when its value is unknown.
+
+    :param raw_command: The command as written, variables included.
+    :param resolved_command: The command after substitution, or None.
+    :param has_target: Whether the command was matched to a project target.
+    :return: One of DRIVER_REPO_TARGET, DRIVER_EXTERNAL_TOOL or DRIVER_UNRESOLVED.
     """
 
     if has_target:
@@ -124,9 +115,11 @@ def target_candidates(command_text: str) -> list[str]:
     """
     Names under which a command might match a project target.
 
-    Besides the command itself this yields its basename, so a binary referenced by
-    path - ``${CMAKE_BINARY_DIR}/solver_test`` - still links to the
-    ``add_executable(solver_test ...)`` that builds it.
+    Besides the command itself this yields its basename, so that a binary
+    referenced by path still links to the target that builds it.
+
+    :param command_text: The command a test runs.
+    :return: The names to try against the project's targets.
     """
 
     text = target_of(command_text)
@@ -142,8 +135,11 @@ def target_of(command_text: str) -> str:
     """
     Reduce a test's command to the target name it refers to.
 
-    ``add_test(... COMMAND $<TARGET_FILE:solver_test>)`` and
-    ``add_test(... COMMAND solver_test)`` both name the target ``solver_test``.
+    A generator expression such as $<TARGET_FILE:solver_test> and a bare
+    solver_test both name the same target.
+
+    :param command_text: The command a test runs.
+    :return: The target name it refers to.
     """
 
     match = _TARGET_FILE.search(command_text)
@@ -156,10 +152,12 @@ def unquote(text: str) -> str:
     """
     Strip one layer of surrounding double quotes.
 
-    ``Command.arguments`` keep the quotes of a quoted argument, because they carry
-    the node's source text. In CMake those quotes are delimiters, not part of the
-    value, so they must be removed before a value is bound - otherwise substituting
-    it into another argument yields names like ``tests."examples"."1d_stencil"``.
+    Arguments carry the node's source text and therefore keep their quotes. In
+    CMake those quotes are delimiters, not part of the value, so they have to be
+    removed before the value is bound into another argument.
+
+    :param text: The argument text.
+    :return: The text without one surrounding pair of double quotes.
     """
 
     if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
@@ -169,11 +167,15 @@ def unquote(text: str) -> str:
 
 def resolve_loop_items(loop: ForeachLoop, binding: dict[str, str]) -> list[str] | None:
     """
-    Determine the values a ``foreach()`` iterates over.
+    Determine the values a foreach() iterates over.
 
-    Supports the literal form, ``IN LISTS``/``IN ITEMS`` and ``RANGE``. Returns
-    ``None`` when the list cannot be determined statically - the caller then records
-    an indeterminate count instead of guessing one.
+    Supports the literal form, IN LISTS, IN ITEMS and RANGE.
+
+    :param loop: The loop whose list is resolved.
+    :param binding: Values currently bound, used to substitute the list.
+    :return: One entry per iteration, or None when the list cannot be determined
+        statically. The caller then records an indeterminate count rather than
+        guessing one.
     """
 
     arguments = [substitute(argument, binding) for argument in loop.list_arguments]
@@ -212,7 +214,7 @@ def _range_items(arguments: list[str]) -> list[str] | None:
 
 
 def _in_items(arguments: list[str], binding: dict[str, str]) -> list[str] | None:
-    """Handle ``foreach(v IN LISTS a b ITEMS x y)``."""
+    """Handle foreach(v IN LISTS a b ITEMS x y)."""
 
     items: list[str] = []
     mode = None
@@ -238,8 +240,12 @@ def bind_arguments(definition: MacroDefinition, arguments: list[str]) -> dict[st
     """
     Bind a call site's arguments to a definition's parameters.
 
-    Also provides CMake's implicit ``ARGV0..n``/``ARGC``/``ARGN`` bindings, where
-    ``ARGN`` holds the arguments beyond the declared parameters.
+    Also provides CMake's implicit ARGV0..n, ARGC and ARGN bindings, where ARGN
+    holds the arguments beyond the declared parameters.
+
+    :param definition: The macro or function being expanded.
+    :param arguments: The arguments passed at the call site.
+    :return: A mapping from parameter name to bound value.
     """
 
     arguments = [unquote(argument) for argument in arguments]
@@ -260,23 +266,37 @@ def bind_arguments(definition: MacroDefinition, arguments: list[str]) -> dict[st
 
 
 def substitute(text: str, binding: dict[str, str]) -> str:
-    """Expand ``${NAME}`` references that the binding knows, leaving others intact."""
+    """
+    Expand ${NAME} references that the binding knows.
+
+    :param text: The text to substitute into.
+    :param binding: The values currently bound.
+    :return: The text with known references replaced, unknown ones left intact.
+    """
 
     return _VARIABLE.sub(lambda match: binding.get(match.group(1), match.group(0)), text)
 
 
 def fully_resolved(text: str) -> str | None:
-    """Return the text if no variable reference is left in it, otherwise ``None``."""
+    """
+    Report a text as resolved only if no variable reference is left in it.
+
+    :param text: The text to check.
+    :return: The text itself, or None if it still contains a reference.
+    """
 
     return None if "${" in text else text
 
 
 def extract_test_arguments(arguments: list[str]) -> tuple[str, str]:
     """
-    Pull the test name and the command out of an ``add_test`` argument list.
+    Pull the test name and the command out of an add_test argument list.
 
-    Handles both the modern ``add_test(NAME x COMMAND y ...)`` form and the legacy
-    ``add_test(<name> <exe> ...)`` form.
+    Handles both the modern add_test(NAME x COMMAND y ...) form and the legacy
+    add_test(<name> <exe> ...) form.
+
+    :param arguments: The arguments of the add_test call.
+    :return: The test name and the command, each empty if not present.
     """
 
     upper = [argument.upper() for argument in arguments]
@@ -306,7 +326,7 @@ def _target_from(
     file_path: str,
     repo_root: str | None,
 ) -> ResolvedTarget | None:
-    """Build a target record from an ``add_executable`` call, with the binding applied."""
+    """Build a target record from an add_executable call, with the binding applied."""
 
     arguments = [unquote(substitute(argument, binding)) for argument in command.arguments]
     if not arguments:
@@ -338,9 +358,13 @@ def link_targets(
     """
     Attach the executable target - and thereby its source files - to each test.
 
-    This is the step that answers "which sources are the test code": a regex can see
-    the string ``solver_test`` in an ``add_test`` line, but cannot connect it to the
-    ``add_executable(solver_test test_solver.cpp)`` that defines what it runs.
+    This is the step that answers which sources are the test code, by connecting
+    a command to the add_executable that defines what it runs.
+
+    :param registrations: The reconstructed registrations.
+    :param targets: The targets found in the same expansion run.
+    :return: The registrations, with target and target_sources filled in where
+        a match was found.
     """
 
     by_name: dict[str, ResolvedTarget] = {}
@@ -379,11 +403,16 @@ def guards_for(
     binding: dict[str, str] | None = None,
 ) -> str | None:
     """
-    The ``if()`` conditions a command sits under, outermost first.
+    The if() conditions a command sits under, outermost first.
 
     Determined by span containment rather than by restructuring the expansion, so
-    that ordering and set() semantics stay exactly as they are - if() does not open
-    a new variable scope in CMake either.
+    that ordering and set() semantics stay as they are. An if() does not open a
+    new variable scope in CMake either.
+
+    :param command: The command whose guards are collected.
+    :param blocks: The file's branches.
+    :param binding: Values used to substitute the conditions, if any.
+    :return: The conditions joined with " AND ", or None if unguarded.
     """
 
     if command.byte_offset is None or not blocks:
@@ -416,7 +445,7 @@ def _registration_from(
     indeterminate: bool = False,
     guarded_by: str | None = None,
 ) -> TestRegistration:
-    """Build a registration from a resolved ``add_test``/``gtest_discover_tests`` call."""
+    """Build a registration from a resolved add_test/gtest_discover_tests call."""
 
     if command.name.lower() == "gtest_discover_tests":
         # gtest_discover_tests(target) names its tests at build time; the target is
@@ -536,7 +565,7 @@ def _expand_scope(
     if_blocks: dict[str, list[IfBlock]],
 ) -> list[TestRegistration]:
     """
-    Expand one scope: its plain commands plus the ``foreach()`` blocks it contains.
+    Expand one scope: its plain commands plus the foreach() blocks it contains.
 
     Commands inside a loop body are skipped here and reached through the loop, so
     each iteration gets its own binding for the loop variable.
@@ -602,7 +631,7 @@ def _expand_loop(
     repo_root: str | None,
     if_blocks: dict[str, list[IfBlock]],
 ) -> list[TestRegistration]:
-    """Expand a ``foreach()`` once per iterated value, or once if the list is unknown."""
+    """Expand a foreach() once per iterated value, or once if the list is unknown."""
 
     nested = [
         other for other in all_loops
@@ -684,7 +713,7 @@ def _expand(
 
 
 def _apply_set(command: Command, binding: dict[str, str]) -> None:
-    """Apply a ``set(VAR value...)`` to the binding, expanding its right-hand side."""
+    """Apply a set(VAR value...) to the binding, expanding its right-hand side."""
 
     variable = command.arguments[0]
     values = [

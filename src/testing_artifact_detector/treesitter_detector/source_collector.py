@@ -69,12 +69,12 @@ def collect_sources(
     excluded_dirs: Iterable[str] | None = None,
 ) -> CollectedSources:
     """
-    Collect CMake and C++ candidate files below ``root_path``.
+    Collect CMake and C++ candidate files below root_path.
 
     :param root_path: Repository root to scan.
     :param excluded_dirs: Optional custom directory names that should be
         skipped during traversal.
-    :return: A ``CollectedSources`` object with separated file lists.
+    :return: A CollectedSources object with separated file lists.
     """
 
     root = Path(root_path)
