@@ -1,0 +1,290 @@
+\documentclass[12pt,titlepage]{article}
+\usepackage[
+    a4paper,
+    left=2cm,      % Linker Rand
+    right=2cm,     % Rechter Rand
+    top=2.5cm,       % Oberer Rand
+    bottom=2.5cm,   
+]{geometry}
+\usepackage{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{verbatim}
+\usepackage{text}
+\usepackage{enumitem}
+\usepackage[ngerman]{babel}
+\usepackage{amssymb}% http://ctan.org/pkg/amssymb
+\usepackage{amsmath}
+\usepackage[parfill]{parskip}
+\usepackage{graphicx}
+\usepackage{xltabular}
+\usepackage{csquotes}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{svg}
+\usepackage{caption}
+\usepackage{lmodern}
+\usepackage{pdflscape}
+\usepackage{siunitx}
+\usepackage{float}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+
+
+\usepackage{cite}
+
+%\usepackage[backend=biber, style=ieee, sortcites=true]{biblatex}
+%\addbibresource{literatur.bib}
+
+
+\begin{document}
+\begin{titlepage}
+\begin{figure}[t]
+    \centering\includegraphics[width=0.3\textwidth]{img/06_Matjpg.png}
+\end{figure}
+\begin{center}
+    \textsc{ \LARGE{Universität Potsdam \\}}
+	\textsc{ \LARGE{Mathematisch-Naturwissenschaftliche Fakultät\\ }}
+    \textsc{ \Large{Informatik \& Computational Science\\ }}
+        \vspace{1.5cm}
+	\textnormal{ \LARGE{Konzeption\\}}
+	\vspace{20mm}
+	\fontsize{8mm}{7mm}\selectfont 
+    \textup{\large{Konzeption und Implementierung eines AST-basierten Frameworks zur Identifizierung und Analyse von Test-Artefakten in C++ und CMake Forschungs-Repositories}}\\
+\end{center}
+
+\vspace{20mm}
+
+\begin{minipage}[t]{0.47\textwidth}
+	\textnormal{\large{\bf Gutachter:innen:\\}}
+	{\large ---}
+\end{minipage}\hfill\begin{minipage}[t]{0.47\textwidth}\raggedleft
+	\textnormal{\large{\bf Autor:\\}}
+	{\large Oskar Soth (806965)}
+\end{minipage}
+
+\vspace{20mm}
+
+\centering{\large{\today}}
+
+\end{titlepage}
+
+\section{Einleitung}
+Die Suche nach Test-Artefakten in komplexen C++- und CMake-Strukturen lässt sich mit simplen textbasierten Suchmethoden (wie Regulären Ausdrücken) nicht zuverlässig lösen. Verschachtelte Makros, auskommentierter Code oder mehrzeilige Befehle führen bei rein lexikalischen Ansätzen unweigerlich zu hohen Raten an False Positives. Aus diesem Grund wird in dieser Arbeit ein strukturierter Ansatz gewählt. Anstatt den Code als flachen Text zu betrachten, wird er mithilfe eines Parsers in seine zugrundeliegende syntaktische Struktur (Abstract Syntax Tree) überführt. Ziel dieser Arbeit ist es, auf Basis dieses Strukturbaums ein Framework zu konzipieren, das in der Lage ist, die verteilten Artefakte semantisch zu verknüpfen. Dabei soll im Rahmen der Evaluation untersucht werden, inwiefern dieser AST-basierte Ansatz eine zuverlässigere und präzisere Identifikation von Test-Artefakten ermöglicht als eine rein textbasierte Methode.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%% STAND DER TECHNIK %%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Stand der Technik}
+Um die Konzeption eines neuen, AST-basierten Frameworks fundiert zu begründen, ist es zunächst erforderlich, die etablierten Verfahren zur statischen Code-Analyse kritisch zu betrachten. Dieses Kapitel evaluiert den aktuellen Stand der Forschung und beleuchtet die technologischen Grenzen existierender Ansätze bei der Identifikation von Test-Artefakten. Dafür wird zunächst die theoretische Notwendigkeit einer strukturellen anstelle einer rein lexikalischen Analyse hergeleitet. Daraufhin werden die Schwächen etablierter Allzweck-Analysetools im spezifischen Kontext von Test-Code aufgezeigt, bevor moderne Parser-Technologien für das Vorhaben verglichen werden.
+
+
+\subsection{Grenzen lexikalischer Analyse}
+Lexikalische Suchverfahren sind mathematisch auf reguläre Sprachen beschränkt und können die tief verschachtelten Strukturen von C++ und CMake nicht zuverlässig erfassen. Wie \textit{Aho et al.} \cite[S.~209~ff.]{Aho_Lam_Sethi_Ullman_2007} darlegen, erfordern bereits grundlegende Eigenschaften C-ähnlicher Sprachen die Einbeziehung semantischen Kontexts, um Bezeichner (Namen von Variablen oder Typen) korrekt aufzulösen. C++ ist daher im Kern als kontextsensitiv (Typ-1) einzustufen, was einen Parser-basierten Ansatz, der den Code in einen Abstract Syntax Tree (AST) überführt, zwingend erforderlich macht.
+
+
+\subsection{Schwächen aktueller Analyse-Tools bei Test-Code}
+Die dargelegten theoretischen Beschränkungen lexikalischer Analysen manifestieren sich in der Praxis als Nachteile bei der Zuverlässigkeit der Artefakterkennung. \textit{Malm et al.} \cite{General_Purpose_Static_Ana_Test} untersuchten den Einsatz moderner statischer Analysewerkzeuge wie Clang-Tidy, Clang Static Analyzer und Cppcheck auf Test-Code und stellten fest, dass diese Werkzeuge ohne spezifische Anpassungen oft unpräzise Ergebnisse liefern. Obwohl sich die Untersuchung primär auf die Detektion von Softwarefehlern konzentriert, lassen sich die identifizierten Ursachen direkt auf die Problematik der automatisierten Erkennung von Test-Artefakten übertragen. Ein wesentliches Hindernis ist der Mangel an kontextuellen Informationen. Da Test-Code häufig framework-spezifische Designentscheidungen und Makro-Expansionen nutzt, werden diese von allgemeinen Analyse-Tools oft als Rauschen fehlinterpretiert oder gar nicht erst als Test-Logik erkannt. \textit{Malm et al.} \cite{General_Purpose_Static_Ana_Test} heben hervor, dass eine präzise Analyse ein tiefes Verständnis der zugrundeliegenden Framework-Semantik erfordert – etwa die Erkennung von benutzerdefinierten Assertionen, die für den Kontrollfluss entscheidend sind.Darüber hinaus wird die konzeptionelle Überlegenheit strukturorientierter Verfahren gegenüber rein muster- oder zeilenbasierten Ansätzen deutlich. Während einfache, auf regulären Ausdrücken basierende Prüfungen schnell sind, beschränken sie sich auf syntaktische Oberflächenmerkmale. \textit{Malm et al.} \cite{General_Purpose_Static_Ana_Test} argumentieren hingegen, dass für eine verlässliche Analyse Abstraktionsformate wie der Abstract Syntax Tree notwendig sind, um konsistente Ergebnisse zu erzielen. Für die vorliegende Arbeit bedeutet dies: Eine zuverlässige Erkennung von Test-Artefakten kann nicht allein durch das Scannen nach Textmustern erfolgen. Stattdessen ist ein Tool erforderlich, das die hierarchische Struktur des Build-Systems und des Quellcodes versteht, um framework-spezifische Artefakte sicher von gewöhnlichem Code zu differenzieren.
+
+\subsection{Vergleich von Parser-Technologien}
+Um die Eignung verschiedener Parser-Technologien für die sprachübergreifende Analyse zu bewerten, müssen diese hinsichtlich ihrer Architektur, ihrer Sprachunterstützung und ihrer Robustheit verglichen werden. Insbesondere bei der Analyse von heterogenen Repositories, die unvollständigen Code oder noch nicht konfigurierte Build-Skripte enthalten können, ist die Fehlertoleranz des Parsers ein entscheidendes Kriterium \cite{Comparison_Parsers}. Tabelle 1 stellt die relevantesten Technologien im Kontext dieser Arbeit gegenüber.
+
+\begin{table}[H]
+    \centering
+    \label{tab:parser_vergleich}
+    \begin{tabularx}{\linewidth}{lllll}
+        \toprule
+        \textbf{Technologie} & \textbf{Analyse-Ansatz} & \textbf{Fokus-Sprachen} & \textbf{Ausgabeformat} & \textbf{Fehlertol.} \\
+        \midrule
+        ANTLR (v4)\cite{Comparison_Parsers}  & ALL(*)      & C++, Java, Python  & AST          & Nein \\
+        JavaCC\cite{Comparison_Parsers}      & LL(k)       & Primär Java, C++   & AST / Code   & Nein \\
+        srcML\cite{srcML}       & XML-Parsing & C/C++, Java, C\#   & XML (DOM)    & Bedingt \\
+        Tree-sitter\cite{treesitter, Comparison_Parsers} & GLR         & \textbf{C++, CMake}& CST / JSON   & \textbf{Ja} \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Gegenüberstellung etablierter Parser-Technologien zur statischen Code-Analyse.}
+\end{table}
+Die in Tabelle 1 aufgeführten Werkzeuge basieren auf unterschiedlichen theoretischen Parsing-Strategien. Während Top-Down-Verfahren wie LL(*) (ANTLR) versuchen, die Grammatikregeln ausgehend vom Startsymbol abzuleiten, verfolgt Tree-sitter einen Bottom-Up-Ansatz (LR)\cite[S.~212, 233-234]{Aho_Lam_Sethi_Ullman_2007}. Letzterer gilt mathematisch als mächtiger für die Handhabung komplexer Sprachkonstrukte 
+und Links-Rekursionen \cite[S.~234]{Aho_Lam_Sethi_Ullman_2007}, wie sie in C++ häufig vorkommen.
+
+Wie aus der Gegenüberstellung hervorgeht, scheiden klassische Compiler-Parser wie ANTLR für diesen spezifischen Anwendungsfall aus, da sie bei syntaktischen Fehlern im Quellcode den Analyseprozess in der Regel abbrechen \cite{Comparison_Parsers}.
+
+Ein entscheidendes Alleinstellungsmerkmal von Tree-sitter ist die Nutzung des Generalized LR (GLR) Algorithmus. Wie \textit{Clem et al.} \cite{SAGitHub} darlegen, ermöglicht dieser es, nicht-deterministische Grammatiken effizient zu verarbeiten. Im Gegensatz zu herkömmlichen LR(1)-Parsern, die auf einen Lookahead von lediglich einem Token beschränkt sind, kann Tree-sitter durch GLR syntaktische Mehrdeutigkeiten auflösen, indem mehrere Parse-Pfade simultan verfolgt werden \cite{treesitter}.
+
+\noindent In Kombination mit der Fähigkeit zum inkrementellen Parsen ermöglicht dies eine performante und fehlertolerante Analyse. Diese Robustheit ist zwingend erforderlich, um auch in unvollständigen oder fehlerhaften Test-Strukturen verlässliche Artefakt-Beziehungen aufzubauen, ohne dass ein erfolgreicher Kompiliervorgang als Voraussetzung dienen muss.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%% Architektur und Methodik %%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Anforderungsanalyse und Methodik}
+In diesem Kapitel wird das systematische Vorgehen bei der Entwicklung des Analysetools beschrieben. Im ersten Teil werden die Anforderungen an das Artefakt dargelegt. Im zweiten Teil wird auf die gewählte Forschungsmethodik eingegangen. Da das Ziel dieser Arbeit die Schaffung eines neuen Artefakts zur Lösung eines praktischen Problems ist, wird ein Ansatz aus dem Design Science Research (DSR) gewählt.
+
+\subsection{Anforderungsanalyse}
+\label{sec:anforderungsanalyse}
+
+Zur strukturierten Erfassung der Anforderungen an das Artefakt wird ein methodischer Ansatz verfolgt. Die Anforderungen werden in funktionale und nicht-funktionale Anforderungen unterteilt und mittels der MoSCoW-Methode priorisiert.
+
+\subsubsection{Funktionale Anforderungen}
+\label{subsec:funktionale-anforderungen}
+
+Die funktionalen Anforderungen definieren den Kern des AST-basierten Frameworks. Tabelle~\ref{tab:requirements} gibt eine Übersicht der priorisierten Features.
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabularx}{\textwidth}{l l l X}
+        \toprule
+        \textbf{ID} & \textbf{Feature} & \textbf{Prio} & \textbf{Beschreibung} \\
+        \midrule
+        F01 & AST-Parsing & Must & Erzeugung eines validen AST/CST für C++ und CMake mittels \textit{Tree-sitter}. \\
+        F02 & Strukturelle Suche & Must & Identifikation von Artefakten über AST-Knotentypen statt Regex. \\
+        F03 & Cross-Language-Mapping & Must & Mapping von C++-Test-Artefakten mit CMake-Zielen. \\
+        F04 & Berichtsausgabe & Should & Export der gefundenen Artefakte in geeignetem Format. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Funktionale Anforderungen (MoSCoW-Priorisierung)}
+    \label{tab:requirements}
+\end{table}
+
+\subsubsection{Nicht-funktionale Anforderungen}
+\label{subsec:nicht-funktionale-anforderungen}
+
+Neben den funktionalen Anforderungen muss das Artefakt folgende Qualitätskriterien erfüllen:
+
+\begin{description}
+    \item[Fehlertoleranz:] Das System muss in der Lage sein, Analysen auf unvollständigem Code oder in Umgebungen mit fehlenden Abhängigkeiten durchzuführen.
+    \item[Modularität:] Die Architektur muss durch das Einbinden neuer Grammatiken auf weitere Programmiersprachen erweiterbar sein.
+    \item[Performanz:] Die AST-Generierung muss mittels inkrementellem Parsen effizient erfolgen, um auch große Repositories in akzeptabler Zeit zu analysieren.
+\end{description}
+
+\subsubsection{Abgrenzung}
+\label{subsec:abgrenzung}
+
+Um den Umfang der Arbeit im vorgegebenen Zeitrahmen zu halten, wird der Fokus explizit eingeschränkt: Das Artefakt dient der \textbf{Identifikation und Analyse}. Die Ausführung der Tests oder eine tiefgehende Prüfung der Build-Umgebung auf Korrektheit (z.B. vollständige Compiler-Simulation) ist nicht Teil dieser Arbeit.
+\subsection{Wahl der Forschungsmethodik}
+Die Auswahl der konkreten Methodik erfolgt auf Basis des Vergleichs-Frameworks von \textit{Venable et al. (2017)}\cite{Venable_Pries-Heje_Baskerville_2017}. In der Gegenüberstellung verschiedener DSR-Ansätze wird die Systems Development Research Methodology (SDRM) nach \textit{Nunamaker et al. (1990)}\cite{Nunamaker_Chen_1990} als besonders geeignet für Projekte identifiziert, bei denen die Entwicklung eines funktionalen IT-Systems im Vordergrund steht. Gemäß der technologischen Auswahlregeln (Rule O/P-1) ist SDRM die bevorzugte Wahl, wenn das Forschungsergebnis ein IT-System sein soll.
+
+\subsection{Der Forschungsprozess nach SDRM}
+Um die für die Identifikation notwendigen Indikatoren im Quellcode und in den Build-Dateien präzise zu bestimmen, wird ein kombinierter Ansatz verfolgt. Als fachliche Ausgangsbasis dienen dabei die bereits im SWORDS-Projekt\cite{SWORDS_template_UP_2024}  etablierten textbasierten Heuristiken. Diese werden im Rahmen dieser Arbeit auf ihre strukturelle Entsprechung innerhalb des Abstract Syntax Trees hin analysiert und in entsprechende Suchmuster überführt. Ergänzend dazu erfolgt eine explorative Analysephase, in der repräsentative Stichproben aus Forschungs-Repositories manuell auf weitere strukturelle Merkmale untersucht werden, die über rein lexikalische Muster hinausgehen. Die so zusammengesetzten Muster bilden die Grundlage für die Definition der AST-Suchheuristiken und die Auswahl der relevanten Knotentypen.\\
+\\
+Der daraus resultierende Entwicklungsprozess gliedert sich in Anlehnung an \textit{Nunamaker et al.}\cite{Nunamaker_Chen_1990} in fünf Phasen:
+% WICHTIG: In der Präambel brauchst du: \usepackage{xltabular, booktabs, enumitem}
+
+\renewcommand{\arraystretch}{1.3} % Zeilenabstand hier setzen
+\begin{xltabular}{\textwidth}{p{4.5cm} X}
+    % caption und header für die ERSTE Seite \\
+    \toprule
+    \textbf{Forschungsschritt} & \textbf{Forschungsaspekte} \\
+    \midrule
+    \endfirsthead
+
+    % Header für alle FOLGENDEN Seiten (falls die Tabelle umbricht)
+    \multicolumn{2}{c}{{\bfseries \tablename\ \thetable{} -- Fortsetzung von vorheriger Seite}} \\
+    \toprule
+    \textbf{Forschungsschritt} & \textbf{Forschungsaspekte} \\
+    \midrule
+    \endhead
+
+    % TABELLENINHALT
+    1. Entwicklung eines konzeptionellen Rahmens &
+    \begin{itemize}[leftmargin=1.5em, nosep, after=\strut, before=\vspace{-1em}]
+        \item Eine aussagekräftige Forschungsfrage formulieren.
+        \item Systemfunktionalitäten und Anforderungen untersuchen.
+        \item Systementwicklungsprozesse/-verfahren verstehen.
+    \end{itemize} \\
+    \midrule
+
+    2. Systemarchitektur entwickeln &
+    \begin{itemize}[leftmargin=1.5em, nosep, after=\strut, before=\vspace{-1em}]
+        \item Ein einzigartiges Architekturdesign für Erweiterbarkeit, Modularität usw. entwickeln.
+        \item Funktionalitäten der Systemkomponenten und deren Wechselbeziehungen definieren.
+    \end{itemize} \\
+    \midrule
+
+    3. Analyse \& Systemdesign &
+    \begin{itemize}[leftmargin=1.5em, nosep, after=\strut, before=\vspace{-1em}]
+        \item Datenbank-/Wissensbasis-Schema und Prozesse zur Ausführung von Systemfunktionen entwerfen.
+        \item Alternative Lösungen entwickeln und eine Lösung auswählen.
+    \end{itemize} \\
+    \midrule
+
+    4. Bau des (Prototyp-)Systems &
+    \begin{itemize}[leftmargin=1.5em, nosep, after=\strut, before=\vspace{-1em}]
+        \item Durch den Systembauprozess Erkenntnisse über Konzepte, Framework und Design gewinnen.
+        \item Einblicke in die Probleme und die Komplexität des Systems gewinnen.
+    \end{itemize} \\
+    \midrule
+
+    5. Beobachtung \& Evaluation des Systems &
+    \begin{itemize}[leftmargin=1.5em, nosep, after=\strut, before=\vspace{-1em}]
+        \item Nutzung des Systems durch Fallstudien und Feldstudien beobachten.
+        \item System durch Laborexperimente oder Feldexperimente evaluieren.
+        \item Neue Theorien/Modelle basierend auf Beobachtung und Experimenten der Systemnutzung entwickeln.
+        \item Gewonnene Erfahrungen konsolidieren.
+    \end{itemize} \\
+    \bottomrule
+    \caption{Methodik der Design Science Research (\textit{Venable et al.} \cite{Venable_Pries-Heje_Baskerville_2017} nach \textit{Nunamaker et al.} \cite{Nunamaker_Chen_1990})}
+\end{xltabular}
+
+Die im zweiten Schritt des SDRM-Prozesses entwickelte Systemarchitektur ist in Abbildung \ref{fig:schemearchitecture} schematisch dargestellt. Sie verdeutlicht den modularen Aufbau des Frameworks sowie den Datenfluss von der Aufnahme des Quellcodes bis hin zur Generierung der Analyseberichte. Zentral ist hierbei die Abstraktion durch die Tree-sitter-Bibliothek, welche die Grundlage für die anschließenden sprachspezifischen Queries bildet.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{img/Architekturdesign.png}
+    \captionsetup{width=0.9\linewidth}
+    \caption{Schematische Darstellung der Systemarchitektur und des funktionalen Ablaufs des AST-basierten Identifikations-Frameworks.}
+    \label{fig:schemearchitecture}
+\end{figure}
+\section{Evaluationsdesign}
+\label{sec:evaluationsdesign}
+
+Das Ziel dieser Evaluation ist der methodische Nachweis der konzeptionellen Überlegenheit eines AST-basierten Ansatzes gegenüber rein textbasierten Heuristiken bei der Identifikation von Test-Artefakten in Forschungssoftware. 
+
+\subsection{Evaluationsziele und Forschungsfragen}
+Die Evaluation zielt auf die empirische Validierung der im Exposé aufgestellten Forschungsfragen ab. Im Fokus stehen dabei insbesondere folgende Aspekte:
+\begin{itemize}
+    \item \textbf{Effektivität:} Inwiefern verbessert der AST-basierte Ansatz die Erkennungsrate (Recall) und die Genauigkeit (Precision) im Vergleich zum textbasierten Ansatz?
+    \item \textbf{Strukturelle Validität:} Können test-relevante Indikatoren in Build-Dateien und Quellcode durch die strukturelle Analyse zuverlässiger extrahiert werden?
+    \item \textbf{Erweiterbarkeit}: Es soll evaluiert werden, inwieweit das gewählte Systemdesign und die Abstraktion durch Tree-sitter dazu beitragen, das Framework mit geringem Aufwand auf weitere Programmiersprachen zu übertragen.
+\end{itemize}
+
+\subsection{Datengrundlage}
+Für die Evaluation wird ein vordefinierter Datensatz verwendet, der für diese Arbeit von Dr. Mario Frank zur Verfügung gestellt wurde. Dieser Datensatz umfasst 206 Forschungs-Repositories, die im Journal of Open Source Software (JOSS) publiziert wurden. Das zentrale Auswahlkriterium für diese Stichprobe war das Vorhandensein des \glqq C++\grqq-Tags. Durch die Herkunft aus JOSS ist sichergestellt, dass es sich um reale, wissenschaftlich relevante Softwareprojekte handelt, wodurch der Datensatz  eine repräsentative Grundlage für die praxisnahe Überprüfung der AST-basierten Heuristiken bildet.
+
+\subsection{Vergleichsmethodik}
+Um eine objektive Vergleichbarkeit zu gewährleisten, wird ein \textit{Differential Testing} durchgeführt. Anstatt einer manuellen Vollerhebung über den gesamten Datensatz wird das folgende iterative Vorgehen gewählt:
+
+\begin{enumerate}
+    \item \textbf{Lexikalische Analyse} (Baseline): Anwendung des im SWORDS-Projekt\cite{SWORDS_template_UP_2024} entwickelten textbasierten Analysewerkzeugs. Dieses Tool nutzt rein lexikalische Heuristiken zur Identifikation von Test-Artefakten und definiert die Baseline für diese Evaluation.
+    \item \textbf{AST-Analyse:} Anwendung des zu implementierenden AST-basierten Frameworks auf denselben Datensatz.
+    \item \textbf{Identifikation der Differenzmenge:} Automatisierter Vergleich der Ergebnismengen zur Identifikation der Differenzmenge.
+    \item \textbf{Manuelle Validierung:} Fokus der manuellen Evaluation auf die Differenzmenge. Hierdurch wird der Aufwand der manuellen Validierung auf diejenigen Fälle konzentriert, in denen beide Analyseansätze unterschiedliche Ergebnisse liefern, was die semantischen Unterschiede der Methoden (lexikalisch vs. strukturell) isoliert.
+\end{enumerate}
+
+Die Quantifizierung der Ergebnisse erfolgt anhand der im Buch \textit{Information Retrieval}\cite{manning2008introduction} etablierten Metriken Precision und Recall. Diese ermöglichen eine präzise Messung der Fehlerraten, unterteilt in \textit{False Positives} und \textit{False Negatives}.
+
+\subsection{Evaluationsdesign der sprachübergreifenden Analyse}
+\label{sec:cpp-evaluation}
+
+Um die Validität der AST-basierten Identifikation in C++-Quelltexten sicherzustellen, ohne eine manuelle Vollerhebung vornehmen zu müssen, wird ein zweistufiges Vorgehensmodell gewählt:
+
+\begin{enumerate}
+    \item \textbf{Automatisierte Cross-Language-Validierung:} 
+    Da das Framework sowohl CMake- als auch C++-Artefakte analysiert, dient die CMake-Konfiguration als Ground Truth. Sofern ein Test-Target in den CMake-Dateien explizit definiert ist (\textit{add\_test}), muss das Framework im korrespondierenden C++-Quelltext ein entsprechendes Test-Artefakt identifizieren. Dabei wird berücksichtigt, dass CMake-Testdefinitionen (z.B. \verb|add_test()|) technisch auch Nicht-C++-Artefakte (z. B. Python- oder Shell-Skripte) aufrufen können. Um die Validität des Cross-Language-Mappings nicht zu verfälschen, werden solche Fälle im Rahmen der automatisierten Validierung identifiziert und als 'out of scope' markiert. Dieses Mapping ermöglicht eine automatisierte Prüfung der Sensitivität (Recall) über den gesamten Datensatz hinweg.    
+    \item \textbf{Qualitative Fallstudien (Case Studies):} 
+    Für komplexe C++-Konstrukte, die über einfache CMake-Referenzen hinausgehen (z. B. template-basierte Test-Cases oder komplexe Makro-Strukturen), erfolgt eine ergänzende, manuelle Analyse. Hierfür werden repräsentative Repositories unterschiedlicher Komplexitätsgrade ausgewählt. Diese Stichproben dienen der qualitativen Verifizierung der AST-basierten Analyseergebnisse und erlauben eine detaillierte Fehleranalyse bei komplexen Sprachkonstrukten.
+\end{enumerate}
+
+Dieses hybride Design kombiniert die Skalierbarkeit der automatisierten Validierung mit der notwendigen methodischen Tiefe der manuellen Fallstudien, um die Eignung des AST-Ansatzes auch für komplexe C++-Umgebungen nachzuweisen.
+
+
+\subsection{Evaluierung der Erweiterbarkeit und Modularität}
+
+Zur Beantwortung der dritten Forschungsfrage bezüglich der softwarearchitektonischen Erweiterbarkeit  wird eine qualitative Bewertung der Systemstruktur vorgenommen. Da das Framework auf einer modularen Architektur basiert und die Parsing-Logik durch Tree-sitter  abstrahiert wird, erfolgt die Evaluation in Form einer Machbarkeitsanalyse (Proof of Concept). Hierbei wird exemplarisch dargelegt, welche Schritte notwendig sind, um eine zusätzliche Programmiersprache (z. B. Python) in das bestehende Framework zu integrieren. Bewertet wird dabei insbesondere der Implementierungsaufwand für neue AST-Queries im Vergleich zur bestehenden C++- und CMake-Logik, um die angestrebte Sprachagnostik des Kern-Systems nachzuweisen.
+\newpage
+\bibliographystyle{IEEEtran}
+\bibliography{literatur}
+\end{document}

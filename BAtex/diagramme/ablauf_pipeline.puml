@@ -1,0 +1,66 @@
+@startuml
+' Abbildung 5.1 - Ablauf der Analyse (UML-Aktivitaetsdiagramm)
+' Rendern:  java -jar plantuml.jar -tpdf diagramme/ablauf_pipeline.puml
+' Die Behandlung fehlerhafter Dateien ist bewusst nicht dargestellt,
+' sie wird in Abschnitt 5.5 beschrieben.
+
+skinparam DefaultFontName Latin Modern Roman
+skinparam DefaultFontSize 13
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam PartitionBorderColor #555555
+skinparam PartitionFontStyle bold
+skinparam NoteBackgroundColor #F4F4F4
+skinparam NoteBorderColor #999999
+skinparam NoteFontSize 11
+skinparam ActivityMargin 12
+
+start
+
+:Repository klonen;
+:CMake-Dateien einsammeln;
+note right
+  Auswahl nach Dateiname,
+  noch ohne Bewertung
+  der Erreichbarkeit
+end note
+
+partition "Pass 1" {
+  :Quelltext in Syntaxbaum überführen;
+  :Kommandos, Definitionen, Schleifen
+  und Bedingungen extrahieren;
+  note right
+    Ersetzt die lexikalische
+    Analyse des
+    Referenzwerkzeugs
+  end note
+}
+
+partition "Pass 2" {
+  :Auswertungsreihenfolge bestimmen;
+  note right
+    Graph ab der obersten
+    CMakeLists.txt; nicht
+    erreichbare Dateien
+    entfallen
+  end note
+  :Aufrufstellen expandieren;
+  note right
+    Makroparameter an die
+    Argumente der Aufrufstelle
+    binden, Schleifen je
+    Durchlauf auflösen
+  end note
+  :Testregistrierungen mit Zielen und
+  Quelldateien verknüpfen;
+  :Testtreiber klassifizieren;
+  :Bedingungskontext zuordnen;
+}
+
+:Kennzahlen je Repository (CSV);
+:Testinventar (JSON Lines);
+
+stop
+@enduml
