@@ -9,14 +9,18 @@ from typing import Iterable
 
 from tree_sitter import Parser
 
-from .common import unique_sorted
+from ..common import unique_sorted
+from ..tree_sitter_backend import build_parser, read_and_parse
 from .cpp_ast import extract_commands, update_cpp_flags
 from .cpp_results import CppFileAnalysis, CppRepositoryAnalysis
-from .tree_sitter_backend import build_parser, read_and_parse
 
 
 def build_cpp_parser() -> Parser:
-    """Build a Tree-sitter parser for C++ using the 'tree-sitter-cpp' grammar."""
+    """
+    Build a Tree-sitter parser for C++.
+
+    :return: A parser configured with the tree-sitter-cpp grammar.
+    """
 
     return build_parser("tree_sitter_cpp", "C++")
 

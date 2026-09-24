@@ -1,36 +1,14 @@
 """
-Full-capability comparison between the regex-based baseline detector output
-(``cli.py``) and the Tree-sitter detector output (``cli2.py``).
+Full-capability comparison of the regex baseline (cli.py) against the Tree-sitter
+detector (cli2.py).
 
-Where ``comp_rgx_ts.py`` deliberately restricts the Tree-sitter side to the
-columns that have a direct baseline equivalent, this script does the opposite:
-it compares the baseline against everything the AST-based detector actually
-knows. Two levels are reported.
-
-**Level 1 - deep CMake.** Same files as the baseline, but using the
-reachability-aware verdict rather than a flat scan:
-
-- ``cmake_tests_reachable`` counts a test only if the registering command is
-  invoked outside any definition, or sits in a macro/function that is actually
-  called. A flat scan - regex or AST - instead counts an ``add_test`` that only
-  sits in an uninvoked macro body.
-- ``uses_gtest`` additionally accepts ``gtest_discover_tests`` as evidence that
-  the project uses GTest. The baseline can only infer this from
-  ``find_package(GTest)``, which modern FetchContent-based setups do not call.
-
-**Level 2 - deep CMake + C++ sources.** Adds the C++ source-level scan (test
-macros and framework includes), which the baseline never reads at all.
-
-Both levels combine columns the detector already computes; no new heuristic is
-introduced here. Disagreements at these levels are therefore *capability*
-differences, not parsing-technique differences - for the latter, use
-``comp_rgx_ts.py``.
+Where comp_rgx_ts.py restricts the Tree-sitter side to the columns with a direct
+baseline equivalent, this script compares the baseline against everything the
+detector knows: level 1 adds the reachability-aware CMake verdict, level 2 adds
+the C++ source scan. Both levels combine columns the detector already computes.
 
 Usage:
-    testing-artifact-detector-compare-deep \\
-        --regex-file foo/baseline_regex.csv \\
-        --ts-file foo/treesitter.csv \\
-        --diff-out foo/differences_deep.csv
+    testing-artifact-detector-compare-deep --regex-file A.csv --ts-file B.csv
 """
 
 from __future__ import annotations
@@ -90,7 +68,13 @@ FULL_INDICATORS: tuple[Indicator, ...] = (
 
 
 def summarise(label: str, disagreements: list[dict]) -> tuple[int, int]:
-    """Print and return ``(real disagreements, missing-data rows)`` for one level."""
+    """
+    Print the result of one comparison level.
+
+    :param label: Name of the level, used in the printed heading.
+    :param disagreements: The rows collected for this level.
+    :return: The number of real disagreements and of missing-data rows.
+    """
 
     real = [row for row in disagreements if row["reason"] == "disagreement"]
     missing = len(disagreements) - len(real)

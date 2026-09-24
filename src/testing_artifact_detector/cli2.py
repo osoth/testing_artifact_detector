@@ -19,7 +19,8 @@ from .clone_repo import clone_repo
 from .config_parsers.cloc_config_parser import get_cloc_excludes
 from .detectors.check_test_types import has_nonempty_benchmark_folders
 from .repo_languages import analyse_languages
-from .treesitter_detector import analyse_cmake_repository, analyse_cpp_repository
+from .treesitter_detector import analyse_cmake_repository
+from .treesitter_detector.cpp import analyse_cpp_repository
 from .treesitter_detector.inventory import repo_inventory, write_inventory
 from .treesitter_detector.source_collector import collect_sources
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .common import Command
+from ..common import Command
 
 
 GTEST_INCLUDE_NAMES = {

@@ -4,9 +4,9 @@ detector output.
 
 Used by both comparison scripts:
 
-- ``comp_rgx_ts.py``  - strict parity: one Tree-sitter column per baseline column,
+- comp_rgx_ts.py  - strict parity: one Tree-sitter column per baseline column,
   same heuristics, so any disagreement is attributable to the parsing technique.
-- ``comp_rgx_ts_deep.py`` - full capability: several Tree-sitter columns OR-ed
+- comp_rgx_ts_deep.py - full capability: several Tree-sitter columns OR-ed
   together, including signals the baseline cannot express at all.
 """
 
@@ -23,7 +23,7 @@ class Indicator:
     """
     One boolean test-artifact signal.
 
-    ``treesitter_columns`` are OR-ed together, which lets a single baseline column
+    treesitter_columns are OR-ed together, which lets a single baseline column
     be compared against a combination of Tree-sitter signals.
     """
 
@@ -33,7 +33,12 @@ class Indicator:
 
 
 def to_bool(value: object) -> bool | None:
-    """Parse a CSV cell ('True'/'False'/empty) into a tri-state bool."""
+    """
+    Parse a CSV cell into a tri-state boolean.
+
+    :param value: The raw cell content, typically "True", "False" or empty.
+    :return: True, False, or None when the cell holds no usable value.
+    """
 
     if value is None:
         return None
@@ -47,7 +52,12 @@ def to_bool(value: object) -> bool | None:
 
 
 def parse_list_column(value: object) -> set[str]:
-    """Parse a column holding a Python list literal into a set."""
+    """
+    Parse a column holding a Python list literal into a set.
+
+    :param value: The raw cell content, e.g. "[\'TEST\', \'TEST_F\']".
+    :return: The entries as a set, empty if the cell could not be parsed.
+    """
 
     if not isinstance(value, str) or not value.strip():
         return set()
@@ -58,18 +68,42 @@ def parse_list_column(value: object) -> set[str]:
 
 
 def resolve_column(columns: pd.Index, name: str, suffix: str) -> str:
-    """Resolve a merged column name, accounting for pandas' suffixing of clashing columns."""
+    """
+    Resolve a column name in the merged frame.
+
+    Merging two result sets makes pandas suffix columns that appear in both.
+
+    :param columns: Columns of the merged frame.
+    :param name: The column name before merging.
+    :param suffix: Suffix pandas applied to the clashing column.
+    :return: The name the column actually has in the merged frame.
+    """
 
     suffixed = f"{name}{suffix}"
     return suffixed if suffixed in columns else name
 
 
 def load_csv(path: str) -> pd.DataFrame:
+    """
+    Read a detector output CSV without type inference.
+
+    :param path: File to read.
+    :return: The contents as strings, so that empty cells stay distinguishable
+        from the literal "False".
+    """
+
     return pd.read_csv(path, dtype=str)
 
 
 def combine_or(row: pd.Series, columns: tuple[str, ...]) -> bool | None:
-    """OR several tri-state columns together, ignoring ones with no data."""
+    """
+    OR several tri-state columns together, ignoring ones with no data.
+
+    :param row: The merged row to read from.
+    :param columns: Names of the columns to combine.
+    :return: True if any column is True, False if all carry data and none is
+        True, None if no column carries data.
+    """
 
     values = [to_bool(row.get(column)) for column in columns]
     present = [value for value in values if value is not None]
@@ -84,9 +118,13 @@ def compare(
     indicators: tuple[Indicator, ...],
 ) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Merge both result sets on ``project_id`` and evaluate every indicator.
+    Merge both result sets on project_id and evaluate every indicator.
 
-    :return: The merged dataframe, and a list of per-indicator/per-repo disagreements.
+    :param baseline: Output of the regex-based detector.
+    :param treesitter: Output of the Tree-sitter detector.
+    :param indicators: The indicators to evaluate.
+    :return: The merged frame, and one entry per disagreeing repository and
+        indicator.
     """
 
     merged = baseline.merge(treesitter, on="project_id", how="outer", suffixes=("_baseline", "_ts"))
@@ -157,7 +195,14 @@ def compare(
 
 
 def report_language_detection_consistency(merged: pd.DataFrame) -> None:
-    """Sanity-check that both runs agree on has_cpp/has_c, since both call the same cloc-based detector."""
+    """
+    Check that both runs agree on the detected languages.
+
+    Both call the same cloc-based detector, so a difference indicates a problem
+    with the input data rather than with either analysis.
+
+    :param merged: The merged frame produced by compare().
+    """
 
     mismatches = 0
     for column in ("has_cpp", "has_c"):
@@ -172,7 +217,12 @@ def report_language_detection_consistency(merged: pd.DataFrame) -> None:
 
 
 def write_disagreements(disagreements: list[dict], path: str | None) -> None:
-    """Write the disagreement rows to a CSV for manual review, if a path was given."""
+    """
+    Write the disagreement rows to a CSV for manual review.
+
+    :param disagreements: The rows collected by compare().
+    :param path: File to write to, or None to skip writing.
+    """
 
     if path and disagreements:
         pd.DataFrame(disagreements).to_csv(path, index=False)

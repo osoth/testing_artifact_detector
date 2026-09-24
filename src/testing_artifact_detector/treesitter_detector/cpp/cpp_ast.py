@@ -6,20 +6,20 @@ grammar's actual node shapes, instead of walking every node in the tree and
 guessing at call/identifier boundaries from node-type substrings or raw text.
 Two structural shapes matter for test-macro detection:
 
-- ``TEST(Foo, Bar) { ... }``-style macros parse as a ``function_definition``
-  whose declarator is a ``function_declarator(identifier, parameter_list)``,
+- TEST(Foo, Bar) { ... }-style macros parse as a function_definition
+  whose declarator is a function_declarator(identifier, parameter_list),
   because the grammar (without macro expansion) treats the macro name as a
   function name and its arguments as parameter declarations.
-- ``TEST_CASE("case1")``-style macros used without a following block, or
-  ordinary function calls, parse as a ``call_expression(identifier,
-  argument_list)``.
+- TEST_CASE("case1")-style macros used without a following block, or
+  ordinary function calls, parse as a call_expression(identifier, argument_list).
 """
 
 from __future__ import annotations
 
 from tree_sitter import Language, Node, QueryCursor
 
-from .common import Command
+from ..common import Command
+from ..tree_sitter_backend import cached_query, line_number, node_text
 from .cpp_results import (
     CATCH2_INCLUDE_NAMES,
     CATCH2_TEST_MACROS,
@@ -28,7 +28,6 @@ from .cpp_results import (
     GTEST_INCLUDE_NAMES,
     GTEST_TEST_MACROS,
 )
-from .tree_sitter_backend import cached_query, line_number, node_text
 
 _COMMAND_QUERY_SOURCE = """
 [
@@ -47,7 +46,14 @@ _COMMAND_QUERY_SOURCE = """
 
 
 def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -> list[Command]:
-    """Extract every include directive and macro/function invocation from a C++ parse tree."""
+    """
+    Extract every include directive and macro or function invocation.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :param language: The grammar the queries are compiled against.
+    :return: One Command per invocation, in source order.
+    """
 
     cursor = QueryCursor(cached_query(language, _COMMAND_QUERY_SOURCE))
 
@@ -89,7 +95,12 @@ def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -
 
 
 def update_cpp_flags(analysis: CppFileAnalysis, command: Command) -> None:
-    """Update a file analysis with one extracted C++ command."""
+    """
+    Update a file analysis with one extracted C++ command.
+
+    :param analysis: The file analysis, updated in place.
+    :param command: The command to evaluate.
+    """
 
     if command.name == "include" and command.arguments:
         include_target = command.arguments[0].lower()
@@ -123,7 +134,13 @@ def update_cpp_flags(analysis: CppFileAnalysis, command: Command) -> None:
 
 
 def extract_include_target(path_node: Node, source_bytes: bytes) -> str | None:
-    """Extract the target of an include directive from its ``path`` field node."""
+    """
+    Extract the target of an include directive.
+
+    :param path_node: The path field node of the directive.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :return: The included path without its delimiters, or None if absent.
+    """
 
     if path_node.type == "system_lib_string":
         return node_text(path_node, source_bytes).strip().strip("<>")
