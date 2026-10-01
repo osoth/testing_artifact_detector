@@ -2,17 +2,26 @@
 Low-level AST helpers for extracting information from CMake syntax trees.
 
 Command extraction is done with the Tree-sitter Query API against the actual
-grammar shape of a command invocation (``normal_command`` with an
-``identifier`` and an ``argument_list`` of ``argument`` nodes), rather than by
+grammar shape of a command invocation (normal_command with an
+identifier and an argument_list of argument nodes), rather than by
 walking every node and guessing command boundaries from node-type substrings
 or splitting raw text on whitespace/commas.
+
+Definitions and loops are extracted for their extent and their called command
+names only; their arguments are not needed because nothing is expanded here.
 """
 
 from __future__ import annotations
 
 from tree_sitter import Language, Node, QueryCursor
 
-from .cmake_results import CMAKE_CONTROL_KEYWORDS, CMakeFileAnalysis, MacroDefinition
+from .cmake_results import (
+    CMAKE_CONTROL_KEYWORDS,
+    CMakeFileAnalysis,
+    ForeachLoop,
+    IfBlock,
+    MacroDefinition,
+)
 from .common import Command
 from .tree_sitter_backend import cached_query, line_number, node_text
 
@@ -32,11 +41,30 @@ _DEFINITION_QUERY_SOURCE = """
 ]
 """
 
+# foreach(var item...) ... endforeach(). As with definitions, only the FIRST
+# argument is the loop variable; the rest describe the iterated list.
+_LOOP_QUERY_SOURCE = """
+(foreach_loop (foreach_command (argument_list) @loop.signature) (body) @loop.body)
+"""
+
+# The grammar lays every branch out as siblings of one if_condition:
+#   if_command, body, elseif_command, body, else_command, body, endif_command
+# so each body has to be paired with the branch command preceding it.
+_IF_QUERY_SOURCE = """
+(if_condition) @block
+"""
+
 
 def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -> list[Command]:
     """
-    Extract every command invocation (top-level or nested in an ``if``/
-    ``function``/``foreach`` body) from a CMake parse tree.
+    Extract every command invocation from a CMake parse tree.
+
+    Includes invocations nested in an if, function or foreach body.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :param language: The grammar the queries are compiled against.
+    :return: One Command per invocation, in source order.
     """
 
     cursor = QueryCursor(cached_query(language, _COMMAND_QUERY_SOURCE))
@@ -56,6 +84,7 @@ def extract_commands(root_node: Node, source_bytes: bytes, language: Language) -
                     for argument_node in captures.get("command.arg", [])
                 ],
                 line=line_number(name_node),
+                byte_offset=name_node.start_byte,
             )
         )
 
@@ -69,12 +98,18 @@ def extract_definitions(
     file_path: str,
 ) -> list[MacroDefinition]:
     """
-    Extract every ``macro``/``function`` definition from a CMake parse tree.
+    Extract every macro/function definition from a CMake parse tree.
 
-    For each definition the commands invoked inside its body are collected, so a
-    caller can decide whether invoking the definition registers a test - something
-    a purely lexical scan cannot determine, because it cannot tell a definition
-    from a call site.
+    For each definition the names of the commands invoked inside its body are
+    collected, which is what lets the call graph decide whether invoking the
+    definition registers a test. The body's arguments are not kept: this analysis
+    does not expand a definition, it only asks whether it is called.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :param language: The grammar the queries are compiled against.
+    :param file_path: Path recorded on each definition as its origin.
+    :return: One MacroDefinition per macro() or function() block.
     """
 
     cursor = QueryCursor(cached_query(language, _DEFINITION_QUERY_SOURCE))
@@ -90,7 +125,8 @@ def extract_definitions(
         if not signature.named_children:
             continue
 
-        # The first argument is the name; every further argument is a parameter.
+        # The first argument is the name; the parameters that follow are of no
+        # use here, since nothing is bound to them.
         name_node = signature.named_children[0]
         body = body_nodes[0]
 
@@ -110,6 +146,93 @@ def extract_definitions(
     return definitions
 
 
+def extract_loops(root_node: Node, source_bytes: bytes, language: Language) -> list[ForeachLoop]:
+    """
+    Extract the extent of every foreach() block, including nested ones.
+
+    Only the span is recorded. Whether a test command sits inside a loop is what
+    this analysis reports; the iterated list is not resolved, so neither the loop
+    variable nor the list arguments are kept.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, unused but kept for a uniform signature.
+    :param language: The grammar the queries are compiled against.
+    :return: One ForeachLoop per block, in source order.
+    """
+
+    cursor = QueryCursor(cached_query(language, _LOOP_QUERY_SOURCE))
+
+    loops: list[ForeachLoop] = []
+    for _, captures in cursor.matches(root_node):
+        body_nodes = captures.get("loop.body", [])
+        if not body_nodes:
+            continue
+
+        body = body_nodes[0]
+        loops.append(
+            ForeachLoop(
+                body_span=(body.start_byte, body.end_byte),
+                line=line_number(body),
+            )
+        )
+
+    return loops
+
+
+def extract_if_blocks(root_node: Node, source_bytes: bytes, language: Language) -> list[IfBlock]:
+    """
+    Extract every if/elseif/else branch with the condition guarding it.
+
+    Nested branches are represented through their spans: a command's guards are all
+    the blocks whose span contains it.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :param language: The grammar the queries are compiled against.
+    :return: One IfBlock per branch, in source order.
+    """
+
+    cursor = QueryCursor(cached_query(language, _IF_QUERY_SOURCE))
+
+    blocks: list[IfBlock] = []
+    for _, captures in cursor.matches(root_node):
+        for block in captures.get("block", []):
+            condition = ""
+            for child in block.children:
+                kind = child.type
+                if kind in ("if_command", "elseif_command"):
+                    condition = " ".join(
+                        node_text(argument, source_bytes)
+                        for argument in _condition_arguments(child)
+                    ) or ""
+                elif kind == "else_command":
+                    condition = "else"
+                elif kind == "body":
+                    blocks.append(
+                        IfBlock(
+                            condition=condition,
+                            body_span=(child.start_byte, child.end_byte),
+                            line=line_number(child),
+                        )
+                    )
+
+    return blocks
+
+
+def _condition_arguments(command_node: Node) -> list[Node]:
+    """
+    The argument nodes of an if/elseif command.
+
+    :param command_node: The branch command to read.
+    :return: Its argument nodes, or an empty list if it has none.
+    """
+
+    for child in command_node.children:
+        if child.type == "argument_list":
+            return list(child.named_children)
+    return []
+
+
 def extract_top_level_command_names(
     root_node: Node,
     source_bytes: bytes,
@@ -120,8 +243,13 @@ def extract_top_level_command_names(
     Return the (lower-cased) names of commands invoked *outside* any macro/function body.
 
     These are the entry points of a CMake file: everything else only runs if the
-    definition containing it is actually called. Being able to draw that
-    distinction at all is what separates this from a flat textual scan.
+    definition containing it is actually called.
+
+    :param root_node: Root of the parsed file.
+    :param source_bytes: The file's raw bytes, used to read node text.
+    :param language: The grammar the queries are compiled against.
+    :param definitions: The file's definitions, whose body spans are excluded.
+    :return: The lower-cased names of the commands invoked at file scope.
     """
 
     body_spans = [definition.body_span for definition in definitions]
@@ -144,16 +272,16 @@ def extract_top_level_command_names(
 
 def update_framework_flags(analysis: CMakeFileAnalysis, arguments: list[str]) -> None:
     """
-    Update the declared-dependency flags from a ``find_package`` call.
+    Update the declared-dependency flags from a find_package call.
 
-    This only means "the project depends on this framework", not "a test was
-    registered" - ``tests_found``/``gtests_found`` are set separately, only by
-    an actual ``add_test``/``gtest_discover_tests`` command.
+    This records a declared dependency, not a registered test; tests_found and
+    gtests_found are set only by an actual add_test or gtest_discover_tests.
 
-    Only the first argument (the package name, e.g. ``find_package(GTest ...)``)
-    is checked, matching the baseline's regex, which only captures that
-    position - not every argument of the call (so e.g. a package required via
-    ``COMPONENTS GTest`` on some other package is deliberately not counted).
+    Only the first argument is checked, since that is the package name. A
+    framework named further along, for instance via COMPONENTS, does not count.
+
+    :param analysis: The file analysis whose flags are updated in place.
+    :param arguments: The arguments of the find_package call.
     """
 
     if not arguments:
@@ -169,7 +297,12 @@ def update_framework_flags(analysis: CMakeFileAnalysis, arguments: list[str]) ->
 
 
 def extract_project_languages(arguments: list[str]) -> list[str]:
-    """Extract the language list from a ``project(... LANGUAGES ...)`` call."""
+    """
+    Extract the language list from a project(... LANGUAGES ...) call.
+
+    :param arguments: The arguments of the project call.
+    :return: The declared language names, or an empty list if none are given.
+    """
 
     languages: list[str] = []
     index = 0
@@ -194,7 +327,12 @@ def extract_project_languages(arguments: list[str]) -> list[str]:
 
 
 def looks_like_language_name(text: str) -> bool:
-    """Check whether an argument can plausibly be a CMake language name."""
+    """
+    Check whether an argument can plausibly be a CMake language name.
+
+    :param text: The argument to test.
+    :return: True if it has the shape of a language name such as CXX or Fortran.
+    """
 
     stripped = text.strip()
     if not stripped:
