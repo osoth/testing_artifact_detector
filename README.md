@@ -62,10 +62,10 @@ command line.
 
 # Tree-sitter version (AST-based analysis)
 
-An alternative, Tree-sitter/AST-based analysis path for C++ and CMake test-artifact
-detection is available via `testing-artifact-detector-ts` (implemented in `cli2.py`,
-using the modules under `src/testing_artifact_detector/treesitter_detector/`). It
-takes the same kind of input/output as the regex-based tool above:
+An alternative, Tree-sitter/AST-based analysis path for CMake test-artifact detection
+is available via `testing-artifact-detector-ts` (implemented in `cli2.py`, using the
+modules under `src/testing_artifact_detector/treesitter_detector/`). It takes the same
+kind of input/output as the regex-based tool above:
 
 > testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/
 
@@ -75,15 +75,40 @@ so the same one-shot vs. clone-then-analyse workflow applies. If repositories we
 already cloned into `bar/` by a prior `testing-artifact-detector` run, that same
 clone directory can be reused directly - no need to clone twice.
 
-Beyond what the regex-based tool can express, it also resolves CMake wrapper
-macros: a `macro(...)`/`function(...)` defined anywhere in the repository whose body
-calls `add_test`/`gtest_discover_tests` is followed transitively, so calling such a
-wrapper counts as registering a test. Because this requires telling a definition
-apart from a call site, it is reported in its own columns
-(`cmake_tests_via_wrapper`, `cmake_test_wrappers`, `cmake_unused_test_wrappers`)
-rather than folded into `cmake_tests_found`. Wrappers defined outside the repository
-(e.g. `dune_add_test` from dune-common) cannot be resolved without the build
-environment, which is out of scope for this tool.
+CMake is this tool's subject, matching the scope of the regex-based detector it is
+compared against. There is no C++ path.
+
+## What it adds over the regex-based tool
+
+A regex answers whether a test command is written somewhere. This tool answers whether
+that place is actually evaluated when CMake processes the project. Two things can
+prevent it, and neither is visible in the text:
+
+- the file is never loaded from the top-level `CMakeLists.txt`, or
+- the `macro`/`function` whose body holds the command is never called.
+
+The unit reported is therefore a **site**: a place where a test command is written,
+together with the verdict on whether it is reached. A site is not a test - one inside a
+`foreach()` registers as many tests as the loop has iterations, and that number is
+deliberately not determined. The counts in the output are counts of sites.
+
+Because this goes beyond what the regex baseline can express, the verdict is reported in
+its own columns (`cmake_tests_reachable`, `cmake_test_sites`, `cmake_sites_invoked`,
+`cmake_sites_file_unreachable`, `cmake_sites_wrapper_uncalled`) rather than folded into
+`cmake_tests_found`, which keeps the baseline heuristics unchanged. Wrappers defined
+outside the repository (e.g. `dune_add_test` from dune-common) cannot be recognised
+without the build environment, which is out of scope for this tool.
+
+## Structured site inventory
+
+`--inventory-out` additionally writes the sites as JSON Lines, one repository per line:
+
+> testing-artifact-detector-ts --in-file foo/joss_repo_miner_output.csv --out-file foo/treesitter_output.csv --clone-dir bar/ --inventory-out foo/test_sites.jsonl
+
+Where the CSV carries per-repository counts, the inventory carries each site: its file
+and line, whether it is an `add_test` or a `gtest_discover_tests`, the verdict, the
+enclosing wrapper if any, the `if()` conditions it sits under (recorded as written, not
+evaluated), and how deeply it is nested in `foreach()` loops.
 
 Further details and options are given by
 
@@ -91,12 +116,11 @@ Further details and options are given by
 
 # Comparing the regex and Tree-sitter results
 
-`comp_rgx_ts.py` (in `src/testing_artifact_detector/treesitter_detector/`) compares
+`comp_rgx_ts.py` (in `src/testing_artifact_detector/evaluation/`) compares
 the CSV outputs of the two tools above and reports, per test-artifact indicator,
 where they agree or disagree. It only compares the fields both tools derive the
 same way (CMake-file-based signals: `find_package`, `add_test`,
-`gtest_discover_tests`); the Tree-sitter tool's additional C++ source-level fields
-have no regex-tool equivalent and are reported separately, for information only.
+`gtest_discover_tests`).
 
 Run it after producing both output CSVs:
 
@@ -104,21 +128,32 @@ Run it after producing both output CSVs:
 
 The same script can also be called directly, without installing the package:
 
-> python src/testing_artifact_detector/treesitter_detector/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+> python src/testing_artifact_detector/evaluation/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
 
 `--diff-out` is optional; when given, every disagreeing or missing-data row is
-written to that CSV for manual review. See `CHANGELOG.md` for a worked example and
-the resulting numbers over the full JOSS dataset.
+written to that CSV for manual review. `CHANGELOG.md` section 4 gives the resulting
+numbers over the full JOSS dataset.
 
-That script answers "does the AST parse better than the regex, given the same
-heuristics?". To instead ask "how much more does the AST-based tool find in total?",
-use the deep comparison, which compares the baseline against everything the detector
-knows - reachability-aware CMake analysis including wrapper resolution (level 1), and
-additionally the C++ source-level scan (level 2):
+The script also reports, for information only, the resolved wrappers and the ones
+never called.
 
-> testing-artifact-detector-compare-deep --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences_deep.csv
+The comparison machinery lives in `comparison.py`.
 
-Both scripts share their comparison machinery via `comparison.py`.
+# Reproducing the reported figures
+
+`thesis_figures.py` recomputes every figure reported for the dataset, so each one can
+be checked against the text that cites it:
+
+> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl
+
+That covers everything derivable from the tool's own two outputs. Three groups of
+figures are not in either output - how a repository declares its test framework, how
+often a wrapper defined outside the repository is called, and how far a single parse
+error spreads - and need the cloned sources and a parser:
+
+> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl --clone-dir bar/
+
+Counts are taken from the syntax tree, so a commented-out call is not a call.
 
 # Project Structure:
 
@@ -127,9 +162,11 @@ Both scripts share their comparison machinery via `comparison.py`.
 ├── LICENSE
 ├── pyproject.toml
 ├── README.md
+├── CHANGELOG.md
 ├── src
 │   └── testing_artifact_detector
-│       ├── cli.py
+│       ├── cli.py # Entry point of the regex-based tool
+│       ├── cli2.py # Entry point of the Tree-sitter version
 │       ├── clone_repo.py # Git cloning infrastructure
 │       ├── config_parsers # Scripts for parsing configuration files
 |       |   ├── cloc_config_parser.py
@@ -144,12 +181,29 @@ Both scripts share their comparison machinery via `comparison.py`.
 │       │   ├── check_test_types.py
 │       │   ├── __init__.py
 │       │   └── util.py
+│       ├── evaluation # Compares the two detectors' outputs, not a detector itself
+│       │   ├── comparison.py # Shared machinery of the two comparison scripts
+│       │   ├── thesis_figures.py # Recomputes the reported figures
+│       │   ├── comp_rgx_ts.py # Strict comparison: same heuristics, AST vs regex
+│       │   └── __init__.py
+│       ├── treesitter_detector # AST-based analysis (see "Tree-sitter version" above)
+│       │   ├── cmake_ast.py # Node extraction via the Tree-sitter query API
+│       │   ├── cmake_graph.py # Evaluation order: which files CMake actually reads
+│       │   ├── cmake_parser.py # Orchestration and the wrapper call graph
+│       │   ├── cmake_results.py # Data model, including TestSite
+│       │   ├── cmake_sites.py # Verdict and context per test site
+│       │   ├── common.py
+│       │   ├── __init__.py
+│       │   ├── sites_inventory.py # Serialises the sites as JSON Lines
+│       │   ├── source_collector.py
+│       │   └── tree_sitter_backend.py # Parser construction and query caching
 │       ├── __init__.py
 │       ├── __main__.py
 │       └── repo_languages.py # cloc based implementation for language analysis
 └── test_suite
     ├── __init__.py
     └── unit
+        ├── conftest.py # Shared parser fixtures
         ├── __init__.py
         ├── test_data
         │   ├── cloc.cfg
@@ -177,8 +231,9 @@ Both scripts share their comparison machinery via `comparison.py`.
         │   └── sample_cloc.json
         ├── test_python_test_artifact_check.py
         ├── test_python_test_config_parsing.py
+        ├── test_r_test_config_parsing.py
         ├── test_repo_languages.py
-        └── test_r_test_config_parsing.py
+        ├── test_treesitter_cmake.py # Tests of the Tree-sitter CMake detector
 ```
 
 # Data Validation and Consistency

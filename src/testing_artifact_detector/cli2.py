@@ -1,10 +1,14 @@
 """
-Tree-sitter based CLI for C++ and CMake analysis.
+Tree-sitter based CLI for CMake test-artifact detection.
 
-This module keeps the existing clone/CSV workflow, but replaces the regex-based
-language-specific analysis with the Tree-sitter C++ and CMake detectors only.
-The Python and R analysis paths are intentionally omitted until those
-Tree-sitter implementations exist.
+Keeps the clone/CSV workflow of the regex-based cli, but replaces its
+language-specific analysis with the Tree-sitter CMake detector: for every place a
+test command is written it reports whether that place is actually evaluated when
+CMake processes the project.
+
+CMake is the subject of this analysis, so there is no C++ path. The earlier
+implementation, which reconstructs the registered tests themselves by expanding
+wrapper macros, is kept under treesitter_detector_old.
 """
 
 from __future__ import annotations
@@ -19,69 +23,97 @@ from .clone_repo import clone_repo
 from .config_parsers.cloc_config_parser import get_cloc_excludes
 from .detectors.check_test_types import has_nonempty_benchmark_folders
 from .repo_languages import analyse_languages
-from .treesitter_detector import analyse_cmake_repository, analyse_cpp_repository
+from .treesitter_detector.cmake_parser import analyse_cmake_repository
+from .treesitter_detector.cmake_results import (
+    SITE_FILE_UNREACHABLE,
+    SITE_WRAPPER_UNCALLED,
+)
+from .treesitter_detector.sites_inventory import repo_inventory, write_inventory
 from .treesitter_detector.source_collector import collect_sources
 
 
-def handle_cpp_and_cmake(row, clone_path):
+def handle_cmake(row, clone_path):
     """
-    Analyse C++ and CMake sources in ``clone_path`` and store the results.
+    Analyse the CMake sources in clone_path and store the results.
 
     :param row: The CSV row to extend.
     :param clone_path: The path into which the repo was cloned.
-    :return: The updated row.
+    :return: (updated row, CMake analysis) - the analysis is handed back so the
+        caller can build the structured site inventory from it.
     """
 
     collected_sources = collect_sources(clone_path)
-    cmake_analysis = analyse_cmake_repository(collected_sources.cmake_files)
-    cpp_analysis = analyse_cpp_repository(collected_sources.cpp_files)
+    cmake_analysis = analyse_cmake_repository(
+        collected_sources.cmake_files, repo_root=clone_path
+    )
 
     row["has_benchmark_folder"] = has_nonempty_benchmark_folders(clone_path)
-
     row["cmake_files_found"] = len(collected_sources.cmake_files)
-    row["cpp_files_found"] = len(collected_sources.cpp_files)
 
+    # Flags kept identical to the regex baseline, so the comparison stays valid.
     row["has_cmakelists"] = cmake_analysis.has_cmakelists
     row["cmake_tests_found"] = cmake_analysis.tests_found
     row["cmake_gtests_found"] = cmake_analysis.gtests_found
     row["cmake_uses_gtest"] = cmake_analysis.uses_gtest
     row["cmake_uses_catch2"] = cmake_analysis.uses_catch2
     row["cmake_enable_testing"] = cmake_analysis.enable_testing
+
+    # Evaluation-order model.
+    row["cmake_files_reachable"] = cmake_analysis.files_reachable
+    row["cmake_files_unreachable"] = cmake_analysis.files_unreachable
+    row["cmake_files_templates"] = cmake_analysis.files_templates
+    row["cmake_files_with_syntax_errors"] = cmake_analysis.files_with_syntax_errors
+    row["cmake_unresolved_directives"] = cmake_analysis.unresolved_directives
+
+    # The sites and the verdict on each. A site is a written test command, not a
+    # test: one inside a foreach() stands for as many tests as the loop iterates,
+    # a number this analysis does not determine.
+    sites = cmake_analysis.test_sites
+    invoked = [site for site in sites if site.invoked]
+    row["cmake_test_sites"] = len(sites)
+    row["cmake_sites_invoked"] = len(invoked)
+    row["cmake_sites_file_unreachable"] = sum(
+        1 for site in sites if site.verdict == SITE_FILE_UNREACHABLE
+    )
+    row["cmake_sites_wrapper_uncalled"] = sum(
+        1 for site in sites if site.verdict == SITE_WRAPPER_UNCALLED
+    )
+    row["cmake_sites_in_wrapper"] = sum(1 for site in invoked if site.in_wrapper)
+    row["cmake_sites_guarded"] = sum(1 for site in invoked if site.guarded_by)
+    row["cmake_site_guards_distinct"] = len({
+        site.guarded_by for site in invoked if site.guarded_by
+    })
+    row["cmake_sites_in_loop"] = sum(1 for site in invoked if site.loop_depth)
+    row["cmake_sites_max_loop_depth"] = max(
+        (site.loop_depth for site in invoked), default=0
+    )
+
     row["cmake_tests_reachable"] = cmake_analysis.tests_found_reachable
     row["cmake_tests_via_wrapper"] = cmake_analysis.tests_via_wrapper
     row["cmake_test_wrappers"] = cmake_analysis.test_wrappers
     row["cmake_unused_test_wrappers"] = cmake_analysis.unused_test_wrappers
     row["cmake_languages"] = cmake_analysis.languages
 
-    row["has_cpp_tests"] = cpp_analysis.tests_found
-    row["cpp_gtests_found"] = cpp_analysis.gtests_found
-    row["cpp_uses_gtest"] = cpp_analysis.uses_gtest
-    row["cpp_uses_catch2"] = cpp_analysis.uses_catch2
-    row["cpp_includes_gtest"] = any(analysis.includes_gtest for analysis in cpp_analysis.analyses)
-    row["cpp_includes_catch2"] = any(analysis.includes_catch2 for analysis in cpp_analysis.analyses)
-    row["cpp_test_macros_found"] = sorted({
-        macro
-        for analysis in cpp_analysis.analyses
-        for macro in analysis.test_macros_found
-    })
-
-    return row
+    return row, cmake_analysis
 
 
 def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
                                  clone_base_path: str, clone_only: bool,
-                                 assume_cloned: bool, cloc_excludes: str) -> None:
+                                 assume_cloned: bool, cloc_excludes: str,
+                                 inventory_out: str | None = None) -> None:
     """
-    Processes a CSV file, iterates over rows to handle repository cloning and path finding.
+    Process a CSV file, iterating over rows to clone and analyse repositories.
 
     :param csv_file_path: Path to the CSV file.
     :param csv_outfile_path: Path to the output CSV file.
-    :param clone_only: States whether only cloning shall be done.
     :param clone_base_path: The path to clone all repos into.
+    :param clone_only: States whether only cloning shall be done.
     :param assume_cloned: Whether the repo should already have been cloned.
     :param cloc_excludes: The cloc language exclude parameter.
+    :param inventory_out: Optional path for the structured site inventory (JSON Lines).
     """
     results = []
+    inventory_records: list[dict] = []
     projects_per_lang: dict[str, int] = {}
     projects_with_dominant_lang: dict[str, int] = {}
     processed_repos = 0
@@ -142,7 +174,11 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
                             else:
                                 projects_per_lang[language] = projects_per_lang[language] + 1
 
-                        row = handle_cpp_and_cmake(row, clone_path)
+                        row, cmake_analysis = handle_cmake(row, clone_path)
+                        if inventory_out:
+                            inventory_records.append(
+                                repo_inventory(project_id, repo_url, cmake_analysis)
+                            )
 
                 else:
                     print(f"Skipping repo number {processed_repos + 1} with"
@@ -170,18 +206,22 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
                                    "has_cpp", "has_c", "has_julia", "lang_info",
                                    "has_benchmark_folder"]
 
-                out_fieldnames += ["cmake_files_found", "cpp_files_found",
+                out_fieldnames += ["cmake_files_found",
                                    "has_cmakelists", "cmake_tests_found",
                                    "cmake_gtests_found", "cmake_uses_gtest",
                                    "cmake_uses_catch2", "cmake_enable_testing",
+                                   "cmake_files_reachable", "cmake_files_unreachable",
+                                   "cmake_files_templates", "cmake_files_with_syntax_errors",
+                                   "cmake_unresolved_directives",
+                                   "cmake_test_sites", "cmake_sites_invoked",
+                                   "cmake_sites_file_unreachable",
+                                   "cmake_sites_wrapper_uncalled",
+                                   "cmake_sites_in_wrapper", "cmake_sites_guarded",
+                                   "cmake_site_guards_distinct",
+                                   "cmake_sites_in_loop", "cmake_sites_max_loop_depth",
                                    "cmake_tests_reachable", "cmake_tests_via_wrapper",
                                    "cmake_test_wrappers", "cmake_unused_test_wrappers",
                                    "cmake_languages"]
-
-                out_fieldnames += ["has_cpp_tests", "cpp_gtests_found",
-                                   "cpp_uses_gtest", "cpp_uses_catch2",
-                                   "cpp_includes_gtest", "cpp_includes_catch2",
-                                   "cpp_test_macros_found"]
 
             csv_writer = csv.DictWriter(csvfile, delimiter=",", fieldnames=out_fieldnames,
                                         extrasaction='ignore')
@@ -192,6 +232,14 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
         print(f"The file {csv_outfile_path} was not found: {e}.")
     except Exception as e:
         print(f"An error occurred: {e}")
+
+    if inventory_out and inventory_records:
+        try:
+            write_inventory(inventory_out, inventory_records)
+            print(f"Wrote test sites for {len(inventory_records)} repositories"
+                  f" to '{inventory_out}'.")
+        except OSError as e:
+            print(f"Could not write the site inventory to '{inventory_out}': {e}")
 
     print(f"Language prominence:\n{projects_per_lang}")
     print(f"Language dominance:\n{projects_with_dominant_lang}")
@@ -206,7 +254,9 @@ def parse_args() -> argparse.Namespace:
 
     p = argparse.ArgumentParser(
         prog="testing-artifact-detector-ts",
-        description="Clones Git repositories and analyses them with Tree-sitter C++ and CMake detectors."
+        description="Clones Git repositories and analyses them with the Tree-sitter "
+                    "CMake detector: for every test command it reports whether that "
+                    "place is actually evaluated."
     )
     p.add_argument("--in-file", required=True, help="Input CSV path.")
     p.add_argument("--out-file", required=True, help="Output CSV path.")
@@ -218,6 +268,11 @@ def parse_args() -> argparse.Namespace:
                    help="Whether to assume that the repositories were already cloned.")
     p.add_argument("--clone-only", type=bool, default=False,
                    help="States that the repositories shall only be cloned.")
+    p.add_argument("--inventory-out", required=False,
+                   help="Write the structured site inventory to this path, as JSON "
+                        "Lines with one repository per line. Carries every written "
+                        "test command with its verdict, the enclosing wrapper, the "
+                        "if() conditions and the foreach() nesting depth.")
     return p.parse_args()
 
 
@@ -240,5 +295,10 @@ def main() -> None:
         clone_base_path=args.clone_dir,
         clone_only=args.clone_only,
         assume_cloned=args.assume_cloned,
-        cloc_excludes=cloc_exclude_param
+        cloc_excludes=cloc_exclude_param,
+        inventory_out=args.inventory_out,
     )
+
+
+if __name__ == "__main__":
+    main()

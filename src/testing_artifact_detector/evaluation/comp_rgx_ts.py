@@ -1,25 +1,14 @@
 """
-Strict-parity comparison between the regex-based baseline detector output
-(``cli.py``) and the Tree-sitter detector output (``cli2.py``).
+Strict-parity comparison of the regex baseline (cli.py) against the Tree-sitter
+detector (cli2.py).
 
-The baseline never reads C++ source files at all - it only regex-scans CMake
-files (see ``cpp_test_config_parser.py``: ``add_test``/``gtest_discover_tests``
-regexes and ``find_package`` name checks). To keep this comparison
-apples-to-apples ("same heuristics, AST instead of regex"), it compares exactly
-one Tree-sitter column per baseline column, using only the Tree-sitter
-detector's flat CMake-derived fields. Every disagreement is therefore
-attributable to the parsing technique alone.
-
-Signals the baseline cannot express - the C++ source-level scan and the CMake
-wrapper resolution - are reported separately, for information only, and are not
-counted as agreements/disagreements. To compare against the detector's *full*
-capability instead, use ``comp_rgx_ts_deep.py``.
+Compares exactly one Tree-sitter column per baseline column, using only the flat
+CMake-derived fields, so that every disagreement is attributable to the parsing
+technique rather than to a wider heuristic. Signals the baseline cannot express
+are reported separately, for information only.
 
 Usage:
-    testing-artifact-detector-compare \\
-        --regex-file foo/baseline_regex.csv \\
-        --ts-file foo/treesitter.csv \\
-        --diff-out foo/differences.csv
+    testing-artifact-detector-compare --regex-file A.csv --ts-file B.csv
 """
 
 from __future__ import annotations
@@ -54,14 +43,28 @@ FAIR_INDICATORS: tuple[Indicator, ...] = (
 
 def report_cpp_source_level_extension(merged: pd.DataFrame) -> None:
     """
-    Informational only: how much additional signal the C++ source-level scan
-    (``cpp_*`` columns) would add on top of the strict CMake-only comparison
-    above. The baseline has no equivalent for this, so these numbers are NOT
-    agreements/disagreements - they preview the cross-language extension
-    (F03) that a later comparison round could evaluate properly.
+    Report what the C++ source scan adds, for information only.
+
+    The baseline never reads C++ sources, so these numbers are not counted as
+    agreements or disagreements.
+
+    :param merged: The merged frame produced by compare().
     """
 
     print("\n== beyond baseline scope: C++ source-level scan (informational only) ==")
+
+    # The CMake-only detector writes none of these columns. Reporting "nothing to
+    # compare" is the honest answer there; raising would be a tooling failure, not
+    # a finding about the data.
+    required = ("cpp_uses_gtest", "cpp_uses_catch2", "cpp_gtests_found",
+                "has_cpp_tests", "cpp_test_macros_found")
+    missing = [
+        name for name in required
+        if resolve_column(merged.columns, name, "_ts") not in merged.columns
+    ]
+    if missing:
+        print("  the Tree-sitter output carries no C++ columns, nothing to report")
+        return
 
     for label, cmake_column, cpp_column in (
         ("uses_gtest", "cmake_uses_gtest", "cpp_uses_gtest"),
@@ -84,20 +87,23 @@ def report_cpp_source_level_extension(merged: pd.DataFrame) -> None:
         merged[tests_found_col].apply(to_bool).ne(True) & merged[has_cpp_tests_col].apply(to_bool).eq(True)
     ]
     macro_sets = only_source_level[macros_col].apply(parse_list_column)
+
+    macros = set()
+    for macro_set in macro_sets:
+        macros |= macro_set
+
     print(f"  has_cpp_tests: CMake-only says No/NA, but C++ source scan says Yes for {len(only_source_level)} repos")
-    print(f"    (driven by test-framework macros such as: "
-          f"{sorted(set().union(*macro_sets)) if len(macro_sets) else '[]'})")
+    print(f"    (driven by test-framework macros such as: {sorted(macros)})")
 
 
 def report_wrapper_resolution(merged: pd.DataFrame) -> None:
     """
-    Informational only: repo-defined CMake macros/functions that transitively
-    register tests.
+    Report the resolved wrapper macros, for information only.
 
-    Resolving these requires telling a definition apart from a call site and then
-    following the call transitively. A line-based regex cannot express that at
-    all, so there is no baseline column to compare against - hence reported here
-    rather than in FAIR_INDICATORS.
+    There is no baseline column to compare against, since resolving a wrapper
+    requires telling a definition apart from a call site.
+
+    :param merged: The merged frame produced by compare().
     """
 
     wrappers_col = resolve_column(merged.columns, "cmake_test_wrappers", "_ts")
