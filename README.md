@@ -139,6 +139,22 @@ never called.
 
 The comparison machinery lives in `comparison.py`.
 
+# Reproducing the reported figures
+
+`thesis_figures.py` recomputes every figure reported for the dataset, so each one can
+be checked against the text that cites it:
+
+> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl
+
+That covers everything derivable from the tool's own two outputs. Three groups of
+figures are not in either output - how a repository declares its test framework, how
+often a wrapper defined outside the repository is called, and how far a single parse
+error spreads - and need the cloned sources and a parser:
+
+> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl --clone-dir bar/
+
+Counts are taken from the syntax tree, so a commented-out call is not a call.
+
 # Project Structure:
 
 ```
@@ -167,6 +183,7 @@ The comparison machinery lives in `comparison.py`.
 │       │   └── util.py
 │       ├── evaluation # Compares the two detectors' outputs, not a detector itself
 │       │   ├── comparison.py # Shared machinery of the two comparison scripts
+│       │   ├── thesis_figures.py # Recomputes the reported figures
 │       │   ├── comp_rgx_ts.py # Strict comparison: same heuristics, AST vs regex
 │       │   └── __init__.py
 │       ├── treesitter_detector # AST-based analysis (see "Tree-sitter version" above)
