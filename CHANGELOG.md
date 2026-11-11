@@ -65,16 +65,22 @@ zusätzlich die Reichweite der Heuristik.
   `add_subdirectory`, `include` und `find_package`.
 - Dateien mit der Endung `.in` sind Vorlagen und werden nie als CMake-Quelltext
   gelesen.
-- **3281 von 4473 CMake-Dateien erreichbar (73 %).** Das verbleibende Viertel besteht
-  überwiegend aus mitgelieferten Fremdbibliotheken und ungenutzten Hilfsmodulen.
+- **3281 von 4473 CMake-Dateien erreichbar (73 %).**
 - Drei konservative Sonderfälle, jeweils zugunsten der Erreichbarkeit entschieden:
   unauflösbares Argument (eine Ebene tief), Datei mit Syntaxfehlern, fehlende Wurzel
-  (degradierter Modus, im Ergebnis vermerkt).
+  (Fallback-Modus). Die fehlende Wurzel wird als Spalte `cmake_root_found`
+  ausgewiesen, damit die 16 betroffenen Repositories nicht als geprüft erscheinen.
+- Die Zahl ist zugleich eine Untergrenze: Eine Einbindung im Rumpf einer Definition
+  wird relativ zur Definitionsdatei aufgelöst, nicht relativ zum Aufrufer. Die
+  Gegenrechnung in `thesis_figures.py` beziffert das auf 3873 Dateien (87 %),
+  verteilt auf zwei Repositories.
 
 ## 7. Aufrufgraph der Definitionen
 
-Ein `add_test` im Rumpf eines Makros läuft nur, wenn das Makro aufgerufen wird. Die
-Unterscheidung zwischen Definition und Aufrufstelle ist am Text nicht möglich.
+Ein `add_test` im Rumpf eines Makros läuft nur, wenn das Makro aufgerufen wird. Ob es
+aufgerufen wird, steht in aller Regel in einer anderen Datei: 1912 der 2479
+Wrapper-Aufrufe liegen nicht in der Datei der Definition. Die Unterscheidung verlangt
+deshalb eine Sicht über das gesamte Repository, nicht über die einzelne Datei.
 
 - Zwei Fixpunktiterationen über die Definitionen des gesamten Repositorys: welche
   registrieren einen Test, und welche werden von der Dateiebene aus aufgerufen.
@@ -97,9 +103,10 @@ diese Zahl wird bewusst nicht bestimmt.
 - Drei Urteile: `invoked`, `file_unreachable`, `wrapper_uncalled`.
 - Kontext je Fundstelle: umschließender Wrapper, `if`-Bedingungen (als Text erfasst,
   nicht ausgewertet), Verschachtelungstiefe in `foreach`-Schleifen.
-- Zuordnung über Byte-Offsets, nicht über eine Umstrukturierung des Baums: Ein
-  `if`-Block öffnet in CMake keinen Variablenbereich, die Bedingung ist damit eine
-  Eigenschaft der Position.
+- Zuordnung über Byte-Offsets, nicht über eine Umstrukturierung des Baums: Die
+  CMake-Grammatik legt die Zweige eines `if`-Blocks als Geschwister neben das
+  `if_command` statt als dessen Kinder, sodass die Bedingung vom Kommando aus nicht
+  durch einen Abstieg erreichbar ist.
 
 **Ergebnis über den Datensatz:**
 
@@ -120,9 +127,9 @@ anders als jedes zeilenbasierte Verfahren; ihre Testkommandos liegen in einem ni
 eingebundenen Beispielverzeichnis, in generierter Build-Ausgabe einer Fremdbibliothek
 beziehungsweise in einem mitgelieferten Catch-Helfer.
 
-## 9. Fundstellenverzeichnis
+## 9. Fundstelleninventar
 
-- Zusätzlich zur CSV ein Verzeichnis im Format JSON Lines, eine Zeile je Repository.
+- Zusätzlich zur CSV ein Inventar im Format JSON Lines, eine Zeile je Repository.
 - Je Fundstelle: Datei und Zeile, Kommandoart, Urteil, umschließender Wrapper,
   Bedingungen, Schleifentiefe.
 - Je Repository eine Zusammenfassung mit denselben Kennzahlen wie in der CSV, sodass
@@ -134,11 +141,11 @@ beziehungsweise in einem mitgelieferten Catch-Helfer.
   das absolute Pfade gegen relative Kandidaten liefert.
 - Nicht reproduzierbare Läufe: Bei mehrdeutigen Dateinamen in einem `include` wurde über
   eine ungeordnete Menge iteriert, sodass je Lauf eine andere Datei als erreichbar galt.
-  Die Kandidaten werden jetzt sortiert und sämtlich als erreichbar behandelt, was
-  zugleich der Über-Approximation entspricht.
+  Die Kandidaten werden jetzt sortiert, und bei Mehrdeutigkeit gelten alle als
+  erreichbar, was zugleich der Überapproximation entspricht.
 - **Reproduzierbarkeit geprüft:** Läufe mit `PYTHONHASHSEED` 0, 1 und 42 erzeugen ein
-  bytegleiches Verzeichnis (`3bf8ddd0e3c7fc1c33eedb178edca99a`) und eine zeilengleiche
-  CSV.
+  bytegleiches Inventar (`36d0b18ca76fcd8362cc97d3ad6a0733`) und eine bytegleiche CSV
+  (`896a020ca7a7835f610d0609e0e4446f`).
 - **Befund zur Fehlertoleranz:** 57 Dateien in 46 Repositories enthalten `ERROR`- oder
   `MISSING`-Knoten. Im Repository 1848 fasst die Fehlerbehandlung 582 der 1182 Zeilen zu
   einem einzigen `ERROR`-Knoten zusammen. Fehlertoleranz sichert zu, dass der Parser

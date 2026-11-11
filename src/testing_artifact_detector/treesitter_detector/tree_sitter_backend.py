@@ -6,10 +6,11 @@ parser from the official grammar package, caching compiled queries, reading a
 node's source text, and the read-and-parse boilerplate used by the per-language
 parser modules.
 
-Both the CMake and C++ detectors are backed by the official per-language grammar
-packages (tree-sitter-cmake / tree-sitter-cpp, see pyproject.toml), so
-parser construction only needs to support that one loading path:
-Language(<module>.language()) followed by Parser(language).
+The grammar comes from the official per-language package (tree-sitter-cmake, see
+pyproject.toml), so parser construction only needs to support that one loading
+path: Language(<module>.language()) followed by Parser(language). The plumbing is
+kept language-agnostic, which is what lets a further language be added by
+supplying its grammar package and queries.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ def build_parser(grammar_module_name: str, human_name: str) -> Parser:
     """
     Build a Tree-sitter parser for the given grammar package.
 
-    :param grammar_module_name: Import name of the grammar package (e.g. "tree_sitter_cpp").
+    :param grammar_module_name: Import name of the grammar package (e.g. "tree_sitter_cmake").
     :param human_name: Human-readable language name used in the error message.
     :return: A configured parser instance.
     :raises RuntimeError: If the grammar package is not installed.

@@ -173,6 +173,13 @@ class CMakeRepositoryAnalysis:
     # is never reached from the top-level CMakeLists.txt.
     tests_found_reachable: bool = False
     # Evaluation-order model (see cmake_graph.py).
+    #: False when the repository has no root CMakeLists.txt. The reachability
+    #: analysis then carries no information: every file is treated as reachable,
+    #: so files_unreachable is 0 and every site is judged invoked. Without this
+    #: flag such a repository is indistinguishable from a fully checked one.
+    #: Also False when the repository holds no CMake files at all, so selecting
+    #: the fallback-mode repositories means has_cmakelists and not root_found.
+    root_found: bool = True
     files_reachable: int = 0
     files_unreachable: int = 0
     files_templates: int = 0

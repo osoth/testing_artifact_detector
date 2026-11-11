@@ -95,7 +95,10 @@ deliberately not determined. The counts in the output are counts of sites.
 Because this goes beyond what the regex baseline can express, the verdict is reported in
 its own columns (`cmake_tests_reachable`, `cmake_test_sites`, `cmake_sites_invoked`,
 `cmake_sites_file_unreachable`, `cmake_sites_wrapper_uncalled`) rather than folded into
-`cmake_tests_found`, which keeps the baseline heuristics unchanged. Wrappers defined
+`cmake_tests_found`, which keeps the baseline heuristics unchanged. `cmake_root_found`
+says whether the repository has a root `CMakeLists.txt`; without one every file counts
+as reachable and every site as invoked, so the verdict there rests on an assumption
+rather than on the graph. Wrappers defined
 outside the repository (e.g. `dune_add_test` from dune-common) cannot be recognised
 without the build environment, which is out of scope for this tool.
 
@@ -146,14 +149,20 @@ be checked against the text that cites it:
 
 > testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl
 
-That covers everything derivable from the tool's own two outputs. Three groups of
-figures are not in either output - how a repository declares its test framework, how
-often a wrapper defined outside the repository is called, and how far a single parse
-error spreads - and need the cloned sources and a parser:
+That covers everything derivable from the tool's own two outputs. The remaining
+figures are not in either output and need the cloned sources and a parser: why an
+include directive stays unresolved, how often a test wrapper is called from another
+file, what resolving a directive in a macro body at the caller would change, how a
+repository declares its test framework, how often a wrapper defined outside the
+repository is called, whether the excluded `.in` templates hold test commands, which
+test-registering commands fall outside the covered set, and how far a single parse
+error spreads:
 
 > testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl --clone-dir bar/
 
-Counts are taken from the syntax tree, so a commented-out call is not a call.
+Counts are taken from the syntax tree, so a commented-out call is not a call. The
+reports that do not come from the tool's own output are marked `(supplementary)`, since
+they are separate surveys rather than figures the tool itself produces.
 
 # Project Structure:
 
@@ -183,6 +192,7 @@ Counts are taken from the syntax tree, so a commented-out call is not a call.
 │       │   └── util.py
 │       ├── evaluation # Compares the two detectors' outputs, not a detector itself
 │       │   ├── comparison.py # Shared machinery of the two comparison scripts
+│       │   ├── cmake_modules.txt # Documented CMake modules (4.2.3), for the figures
 │       │   ├── thesis_figures.py # Recomputes the reported figures
 │       │   ├── comp_rgx_ts.py # Strict comparison: same heuristics, AST vs regex
 │       │   └── __init__.py

@@ -51,6 +51,7 @@ def repo_inventory(project_id: str, repo_url: str, analysis: CMakeRepositoryAnal
             "in_wrapper": sum(1 for site in sites if site.invoked and site.in_wrapper),
             "guarded": sum(1 for site in sites if site.invoked and site.guarded_by),
             "in_loop": sum(1 for site in sites if site.invoked and site.loop_depth),
+            "root_found": analysis.root_found,
             "files_reachable": analysis.files_reachable,
             "files_unreachable": analysis.files_unreachable,
             "files_with_syntax_errors": analysis.files_with_syntax_errors,

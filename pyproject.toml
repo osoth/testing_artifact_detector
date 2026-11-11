@@ -10,8 +10,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
 	"pandas",
-	"tree-sitter-cpp",
-	"tree-sitter-cmake",
+	# Pinned to the versions the thesis cites, so a later run reproduces the
+	# reported figures. A different grammar version can change the parse tree and
+	# with it every count derived from it.
+	"tree-sitter==0.26.0",
+	"tree-sitter-cmake==0.7.2.post1",
 ]
 
 [project.scripts]
@@ -25,6 +28,11 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# The CMake module list thesis_figures.py classifies unresolved includes against.
+# Without this it is missing from a non-editable install.
+"testing_artifact_detector.evaluation" = ["cmake_modules.txt"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["error"]
