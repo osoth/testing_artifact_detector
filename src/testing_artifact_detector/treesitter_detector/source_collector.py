@@ -3,8 +3,9 @@ Utilities for collecting source files that should be analysed by the
 Tree-sitter based detector.
 
 The collector keeps the existing project logic untouched by providing a
-separate, deterministic view on the repository contents. It returns the CMake
-and C++ candidate files that the Tree-sitter parsers should inspect.
+separate, deterministic view on the repository contents. The analysis works on
+the CMake files; the C++ candidates are still collected but no longer evaluated,
+since the subject of this work is the CMake configuration alone.
 """
 
 from __future__ import annotations

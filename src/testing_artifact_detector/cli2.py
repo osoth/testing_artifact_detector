@@ -6,9 +6,7 @@ language-specific analysis with the Tree-sitter CMake detector: for every place 
 test command is written it reports whether that place is actually evaluated when
 CMake processes the project.
 
-CMake is the subject of this analysis, so there is no C++ path. The earlier
-implementation, which reconstructs the registered tests themselves by expanding
-wrapper macros, is kept under treesitter_detector_old.
+CMake is the subject of this analysis, so there is no C++ path.
 """
 
 from __future__ import annotations
@@ -59,6 +57,7 @@ def handle_cmake(row, clone_path):
     row["cmake_enable_testing"] = cmake_analysis.enable_testing
 
     # Evaluation-order model.
+    row["cmake_root_found"] = cmake_analysis.root_found
     row["cmake_files_reachable"] = cmake_analysis.files_reachable
     row["cmake_files_unreachable"] = cmake_analysis.files_unreachable
     row["cmake_files_templates"] = cmake_analysis.files_templates
@@ -210,6 +209,7 @@ def process_csv_and_handle_repos(csv_file_path: str, csv_outfile_path: str,
                                    "has_cmakelists", "cmake_tests_found",
                                    "cmake_gtests_found", "cmake_uses_gtest",
                                    "cmake_uses_catch2", "cmake_enable_testing",
+                                   "cmake_root_found",
                                    "cmake_files_reachable", "cmake_files_unreachable",
                                    "cmake_files_templates", "cmake_files_with_syntax_errors",
                                    "cmake_unresolved_directives",

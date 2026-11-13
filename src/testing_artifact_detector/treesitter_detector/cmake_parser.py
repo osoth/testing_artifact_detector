@@ -196,6 +196,7 @@ def analyse_cmake_repository(
 
     # Everything below models what CMake would actually evaluate.
     graph = build_file_graph(analyses, repo_root=repo_root)
+    result.root_found = not graph.degraded
     result.files_reachable = len(graph.reachable)
     result.files_unreachable = len(analyses) - len(graph.reachable) - len(graph.templates)
     result.files_templates = len(graph.templates)

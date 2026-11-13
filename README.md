@@ -95,9 +95,12 @@ deliberately not determined. The counts in the output are counts of sites.
 Because this goes beyond what the regex baseline can express, the verdict is reported in
 its own columns (`cmake_tests_reachable`, `cmake_test_sites`, `cmake_sites_invoked`,
 `cmake_sites_file_unreachable`, `cmake_sites_wrapper_uncalled`) rather than folded into
-`cmake_tests_found`, which keeps the baseline heuristics unchanged. Wrappers defined
-outside the repository (e.g. `dune_add_test` from dune-common) cannot be recognised
-without the build environment, which is out of scope for this tool.
+`cmake_tests_found`, which keeps the baseline heuristics unchanged. `cmake_root_found`
+says whether the repository has a root `CMakeLists.txt`; without one every file counts
+as reachable and every site as invoked, so the verdict there rests on an assumption
+rather than on the graph. Wrappers defined outside the repository (e.g. `dune_add_test`
+from dune-common) cannot be recognised without the build environment, which is out of
+scope for this tool.
 
 ## Structured site inventory
 
@@ -114,46 +117,37 @@ Further details and options are given by
 
 > testing-artifact-detector-ts --help
 
-# Comparing the regex and Tree-sitter results
+# Development prototype
 
-`comp_rgx_ts.py` (in `src/testing_artifact_detector/evaluation/`) compares
-the CSV outputs of the two tools above and reports, per test-artifact indicator,
-where they agree or disagree. It only compares the fields both tools derive the
-same way (CMake-file-based signals: `find_package`, `add_test`,
-`gtest_discover_tests`).
+`src/groundtruth/` holds the flat prototype the Tree-sitter detector was developed
+from, kept as a reference point. It is a single script with no classes, no type
+annotations and no package structure - the analysis logic written straight down before
+it was refactored into `treesitter_detector/`.
 
-Run it after producing both output CSVs:
+It needs no installation and runs directly over a directory of already cloned
+repositories:
 
-> testing-artifact-detector-compare --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+> python src/groundtruth/main.py bar/            # all repositories
+> python src/groundtruth/main.py bar/ 7958       # one, with every site printed
 
-The same script can also be called directly, without installing the package:
+It writes `out.csv` and `sites.jsonl` into the working directory while it runs, one
+line per repository, so an interrupted run still leaves usable output. The columns and
+the site records carry the same names and values as the packaged tool, which is how the
+two are checked against each other. Neither file is kept in the repository.
 
-> python src/testing_artifact_detector/evaluation/comp_rgx_ts.py --regex-file foo/testing_artifact_detector_output.csv --ts-file foo/treesitter_output.csv --diff-out foo/differences.csv
+`analyze.py` reads such a `sites.jsonl` back and prints the figures that were of
+interest during development - the verdicts, the most frequent `if()` conditions, the
+loop nesting depths, which files the test commands sit in:
 
-`--diff-out` is optional; when given, every disagreeing or missing-data row is
-written to that CSV for manual review. `CHANGELOG.md` section 4 gives the resulting
-numbers over the full JOSS dataset.
+> python src/groundtruth/analyze.py sites.jsonl
 
-The script also reports, for information only, the resolved wrappers and the ones
-never called.
+`thesis_figures.py` does the same for the packaged tool's output rather than the
+prototype's, and reports only what the two output files themselves carry:
 
-The comparison machinery lives in `comparison.py`.
+> python src/groundtruth/thesis_figures.py --csv out.csv --inventory sites.jsonl
 
-# Reproducing the reported figures
-
-`thesis_figures.py` recomputes every figure reported for the dataset, so each one can
-be checked against the text that cites it:
-
-> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl
-
-That covers everything derivable from the tool's own two outputs. Three groups of
-figures are not in either output - how a repository declares its test framework, how
-often a wrapper defined outside the repository is called, and how far a single parse
-error spreads - and need the cloned sources and a parser:
-
-> testing-artifact-detector-figures --csv foo/treesitter_output.csv --inventory foo/test_sites.jsonl --clone-dir bar/
-
-Counts are taken from the syntax tree, so a commented-out call is not a call.
+`compare.py` and `compare_deep.py` put the prototype's result next to the regex
+baseline's, which is how the two were kept aligned while the detector was written.
 
 # Project Structure:
 
@@ -162,8 +156,13 @@ Counts are taken from the syntax tree, so a commented-out call is not a call.
 ├── LICENSE
 ├── pyproject.toml
 ├── README.md
-├── CHANGELOG.md
 ├── src
+│   ├── groundtruth # Flat development prototype, see "Development prototype"
+│   │   ├── analyze.py # Reads a sites.jsonl back and prints figures
+│   │   ├── compare.py # Prototype result against the regex baseline
+│   │   ├── compare_deep.py # The same, over the full capability set
+│   │   ├── main.py # The whole analysis in one script
+│   │   └── thesis_figures.py # Figures from the packaged tool's own output
 │   └── testing_artifact_detector
 │       ├── cli.py # Entry point of the regex-based tool
 │       ├── cli2.py # Entry point of the Tree-sitter version
@@ -181,11 +180,6 @@ Counts are taken from the syntax tree, so a commented-out call is not a call.
 │       │   ├── check_test_types.py
 │       │   ├── __init__.py
 │       │   └── util.py
-│       ├── evaluation # Compares the two detectors' outputs, not a detector itself
-│       │   ├── comparison.py # Shared machinery of the two comparison scripts
-│       │   ├── thesis_figures.py # Recomputes the reported figures
-│       │   ├── comp_rgx_ts.py # Strict comparison: same heuristics, AST vs regex
-│       │   └── __init__.py
 │       ├── treesitter_detector # AST-based analysis (see "Tree-sitter version" above)
 │       │   ├── cmake_ast.py # Node extraction via the Tree-sitter query API
 │       │   ├── cmake_graph.py # Evaluation order: which files CMake actually reads

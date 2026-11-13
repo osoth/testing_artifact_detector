@@ -76,7 +76,7 @@ def test_parse_cmake_file_keeps_baseline_heuristics(
     tmp_path, cmake_parser, source, filename, expected
 ):
     """
-    The four alignments to the regex baseline, see CHANGELOG.md section 3.
+    The four alignments to the regex baseline.
 
     Each case pins down a condition the baseline checks the same way, so that a
     later difference between the two tools is attributable to parsing alone.
@@ -92,7 +92,7 @@ def test_parse_cmake_file_gtest_discover_tests_sets_gtests_found(tmp_path, cmake
     analysis = analyse(tmp_path, "gtest_discover_tests(my_tests)\n", cmake_parser)
 
     # uses_gtest is deliberately NOT set here - the baseline only infers it from
-    # find_package(GTest), never from gtest_discover_tests. See CHANGELOG.md.
+    # find_package(GTest), never from gtest_discover_tests.
     assert analysis.uses_gtest is False
     assert analysis.gtests_found is True
     assert analysis.tests_found is True
@@ -315,6 +315,8 @@ def test_graph_ignores_file_not_reached_from_root(tmp_path, cmake_parser):
     assert result.tests_found is True
     # ...but CMake would never evaluate that file.
     assert result.tests_found_reachable is False
+    # A root was found, so the verdict above is shown and not assumed.
+    assert result.root_found is True
 
 
 @pytest.mark.parametrize(
@@ -383,6 +385,9 @@ def test_graph_degrades_gracefully_without_root_cmakelists(
 
     assert result.files_reachable == expected_reachable
     assert result.tests_found_reachable is True
+    # The verdict above rests on an assumption, not on the graph. Reporting
+    # root_found lets a reader of the output tell the two apart.
+    assert result.root_found is False
 
 
 def test_graph_expands_computed_subdirectory_exactly_one_level(tmp_path, cmake_parser):
@@ -421,11 +426,28 @@ def test_graph_does_not_prune_when_file_has_syntax_errors(tmp_path, cmake_parser
     assert result.tests_found_reachable is True
 
 
-# --- wrapper argument binding (cmake_semantics) -----------------------------
-# Binding a call site's arguments to a definition's parameters is what makes
-# add_test(NAME ${t} ...) inside a macro body readable at all. 74% of add_test
-# calls in the corpus carry variables.
+@pytest.mark.xfail(
+    reason="An include inside a definition body is resolved relative to the defining "
+           "file, while CMake resolves it relative to the calling file. Documented as "
+           "a limit in the Grenzen table.",
+    strict=True,
+)
+def test_body_directive_is_resolved_at_the_caller(tmp_path, cmake_parser):
+    """
+    CMake resolves add_subdirectory() in a macro body against the caller.
 
+    The macro lives in cmake/, the call sits at the repository root, so CMake
+    descends into <root>/tests. This analysis looks for cmake/tests instead and
+    therefore misses the test registered below it.
+    """
+
+    result = analyse_repo_with_root(tmp_path, {
+        "CMakeLists.txt": "include(cmake/Helpers.cmake)\nadd_my_tests()\n",
+        "cmake/Helpers.cmake": "macro(add_my_tests)\n  add_subdirectory(tests)\nendmacro()\n",
+        "tests/CMakeLists.txt": "add_test(NAME nested COMMAND demo)\n",
+    }, cmake_parser)
+
+    assert result.tests_found_reachable is True
 
 
 # --- verdict on each site ---------------------------------------------------
